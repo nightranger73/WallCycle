@@ -79,6 +79,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           dpkg-deb -x wallcycle_*.deb AppDir
+          chmod -R a+rX AppDir
 
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
           rsvg-convert -w 256 -h 256 /usr/share/icons/Adwaita/scalable/apps/preferences-desktop-wallpaper-symbolic.svg -o AppDir/usr/share/icons/hicolor/256x256/apps/wallcycle.png
