@@ -1,3 +1,10 @@
+# Copia questo file in .github/workflows/release.yml nel tuo repository GitHub.
+# Ogni push di un tag v* (es. git tag v1.0.0 && git push --tags) genera:
+#   - wallcycle_<version>_amd64.deb (Debian / Ubuntu / Mint)
+#   - wallcycle-<version>-1.fedora.x86_64.rpm (Fedora)
+#   - wallcycle-<version>-1.opensuse.x86_64.rpm (openSUSE Tumbleweed / Leap)
+#   - WallCycle-Setup-<version>-x64.exe (Windows 64-bit Installer)
+
 name: Release WallCycle Packages
 
 on:
@@ -7,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Fix (v0.1.1e)'
+        description: 'Versione pacchetto (es. 1.0.0)'
         required: true
         default: '1.0.0'
 
@@ -41,7 +48,7 @@ jobs:
 
       - name: Clona e registra TUniqueInstance (luipack)
         run: |
-          git clone --depth=1 https://github.com /tmp/luipack
+          git clone --depth=1 https://github.com/blikblum/luipack.git /tmp/luipack
           mkdir -p /tmp/lazcfg
           lazbuild --pcp=/tmp/lazcfg --add-package-link=/tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
           lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
@@ -72,21 +79,14 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: 1
           VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
-          # Estrae il contenuto del .deb direttamente nella cartella AppDir
           dpkg-deb -x wallcycle_*.deb AppDir
-
-          # Scarica linuxdeploy
-          wget -q https://github.com
-          chmod +x linuxdeploy-x86_64.AppImage
-
-          # Trova automaticamente il file .desktop estratto dal .deb
+          HOST="https://github.com"
+          REPO="linuxdeploy/linuxdeploy/releases/download/continuous"
+          FILE="linuxdeploy-x86_64.AppImage"
+          wget -q "${HOST}/${REPO}/${FILE}"
+          chmod +x "$FILE"
           DESKTOP_FILE=$(find AppDir/usr/share/applications -name "*.desktop" | head -n 1)
-
-          # Genera l'AppImage (linuxdeploy rileva l'icona direttamente dal file .desktop)
-          ./linuxdeploy-x86_64.AppImage \
-            --appdir AppDir \
-            --desktop-file "$DESKTOP_FILE" \
-            --output appimage
+          ./"$FILE" --appdir AppDir --desktop-file "$DESKTOP_FILE" --output appimage
 
       - uses: actions/upload-artifact@v4
         with:
@@ -107,7 +107,7 @@ jobs:
       - name: Compila TUniqueInstance e WallCycle.exe
         shell: pwsh
         run: |
-          git clone --depth=1 https://github.com "$env:TEMP\luipack"
+          git clone --depth=1 https://github.com/blikblum/luipack.git "$env:TEMP\luipack"
           New-Item -ItemType Directory -Force -Path "$env:TEMP\lazcfg" | Out-Null
           lazbuild --pcp="$env:TEMP\lazcfg" --add-package-link="$env:TEMP\luipack\uniqueinstance\uniqueinstance_package.lpk"
           lazbuild --pcp="$env:TEMP\lazcfg" "$env:TEMP\luipack\uniqueinstance\uniqueinstance_package.lpk"
