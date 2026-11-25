@@ -1,6 +1,10 @@
 # WallCycle — Gestore Sfondi Desktop Cross-Platform (Lazarus / FPC)
+<img width="483" height="580" alt="screenshot_20261125_220719" src="https://github.com/user-attachments/assets/3f6b0306-757e-452c-800f-9fcde7f39c9e" />
+<img width="483" height="580" alt="screenshot_20261125_220715" src="https://github.com/user-attachments/assets/ff459f95-100d-444b-b768-54c0f5cf74bb" />
 
 Applicazione desktop nativa scritta in **Object Pascal (Free Pascal 3.2+ / Lazarus 3.x)** per eseguire uno slideshow automatico di sfondi da cartelle locali e da **WallHaven.cc**, con overlay **Data & Ora aggiornato in tempo reale** e filtro intelligente basato sulla **luminanza percepita (ITU-R BT.709)** per proteggere la leggibilità delle icone sulla scrivania.
+
+<img width="960" height="640" alt="screenshot_20261125_221259" src="https://github.com/user-attachments/assets/29600b83-4d32-4a5c-b6f0-b111730c801a" />
 
 ## Funzionalità Principali
 
