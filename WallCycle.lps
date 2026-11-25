@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <Version Value="12"/>
+    <BuildModes Active="Default"/>
+    <Units>
+      <Unit>
+        <Filename Value="WallCycle.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="21"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uConfig.pas"/>
+        <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="236"/>
+        <CursorPos X="26" Y="263"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uLuminanceFilter.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="3"/>
+        <TopLine Value="305"/>
+        <CursorPos Y="320"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uPlaylistScanner.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="21"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uImageOverlay.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="4"/>
+        <TopLine Value="366"/>
+        <CursorPos Y="393"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uWallpaperBackend.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UsageCount Value="21"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uWallHavenClient.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="2"/>
+        <TopLine Value="35"/>
+        <CursorPos X="19" Y="52"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uMainForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="MainForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <CursorPos X="6" Y="10"/>
+        <UsageCount Value="21"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="26">
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="4"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="656" Column="68" TopLine="650"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="770" Column="23" TopLine="757"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="640" Column="3" TopLine="638"/>
+      </Position>
+      <Position>
+        <Filename Value="uLuminanceFilter.pas"/>
+        <Caret Line="320" TopLine="305"/>
+      </Position>
+      <Position>
+        <Filename Value="uImageOverlay.pas"/>
+        <Caret Line="236" Column="11" TopLine="219"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="643" Column="3" TopLine="641"/>
+      </Position>
+      <Position>
+        <Filename Value="uImageOverlay.pas"/>
+        <Caret Line="242" TopLine="226"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="806" TopLine="789"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="805" Column="19" TopLine="789"/>
+      </Position>
+      <Position>
+        <Filename Value="uWallHavenClient.pas"/>
+        <Caret Line="317" Column="15" TopLine="285"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="805" Column="19" TopLine="789"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="809" Column="19" TopLine="793"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="1251" Column="3" TopLine="1249"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="183" Column="23" TopLine="169"/>
+      </Position>
+      <Position>
+        <Filename Value="uImageOverlay.pas"/>
+        <Caret Line="94" TopLine="61"/>
+      </Position>
+      <Position>
+        <Filename Value="uImageOverlay.pas"/>
+        <Caret Line="378" Column="36" TopLine="355"/>
+      </Position>
+      <Position>
+        <Filename Value="uImageOverlay.pas"/>
+        <Caret Line="321" Column="49" TopLine="300"/>
+      </Position>
+      <Position>
+        <Filename Value="uImageOverlay.pas"/>
+        <Caret Line="9" Column="12"/>
+      </Position>
+      <Position>
+        <Filename Value="uImageOverlay.pas"/>
+        <Caret Line="89" Column="20" TopLine="74"/>
+      </Position>
+      <Position>
+        <Filename Value="uImageOverlay.pas"/>
+        <Caret Line="88" Column="28" TopLine="88"/>
+      </Position>
+      <Position>
+        <Filename Value="uMainForm.pas"/>
+        <Caret Line="1231" TopLine="1217"/>
+      </Position>
+      <Position>
+        <Filename Value="uWallHavenClient.pas"/>
+        <Caret Line="17" Column="16" TopLine="47"/>
+      </Position>
+      <Position>
+        <Filename Value="uWallHavenClient.pas"/>
+        <Caret Line="52" Column="19" TopLine="46"/>
+      </Position>
+      <Position>
+        <Filename Value="uWallHavenClient.pas"/>
+        <Caret Line="461" Column="11" TopLine="434"/>
+      </Position>
+      <Position>
+        <Filename Value="uConfig.pas"/>
+      </Position>
+      <Position>
+        <Filename Value="uConfig.pas"/>
+        <Caret Line="81" Column="21" TopLine="55"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode=""/>
+    </RunParams>
+  </ProjectSession>
+</CONFIG>
