@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       version: 0.1.0
-        description: 'First release'
+        description: 'Initial release'
         required: true
         default: '0.1.0'
 
