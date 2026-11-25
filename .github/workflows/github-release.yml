@@ -1,0 +1,180 @@
+# Copia questo file in .github/workflows/release.yml nel tuo repository GitHub.
+# Ogni push di un tag v* (es. git tag v1.0.0 && git push --tags) genera:
+#   - wallcycle_<version>_amd64.deb (Debian / Ubuntu / Mint)
+#   - wallcycle-<version>-1.fedora.x86_64.rpm (Fedora)
+#   - wallcycle-<version>-1.opensuse.x86_64.rpm (openSUSE Tumbleweed / Leap)
+#   - WallCycle-Setup-<version>-x64.exe (Windows 64-bit Installer)
+
+name: Release WallCycle Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versione pacchetto (es. 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - id: ver
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-deb:
+    needs: resolve-version
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installa FPC, Lazarus GTK2 e dpkg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fpc lazarus lazarus-ide-gtk2 git dpkg
+
+      - name: Clona e registra TUniqueInstance (luipack)
+        run: |
+          git clone --depth=1 https://github.com/blikblum/luipack.git /tmp/luipack
+          mkdir -p /tmp/lazcfg
+          lazbuild --pcp=/tmp/lazcfg --add-package-link=/tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
+          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
+
+      - name: Compila WallCycle (Linux GTK2) e genera .deb
+        run: |
+          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 --build-mode=Release WallCycle.lpi
+          chmod +x build-deb.sh
+          ./build-deb.sh "${{ needs.resolve-version.outputs.version }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-deb
+          path: wallcycle_*.deb
+
+  build-rpm-fedora:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installa FPC, Lazarus e rpm-build su Fedora
+        run: |
+          dnf install -y fpc lazarus rpm-build git
+
+      - name: Compila e impacchetta RPM Fedora
+        run: |
+          git clone --depth=1 https://github.com/blikblum/luipack.git /tmp/luipack
+          mkdir -p /tmp/lazcfg ~/rpmbuild/{SOURCES,SPECS,RPMS,BUILD,SRPMS}
+          lazbuild --pcp=/tmp/lazcfg --add-package-link=/tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
+          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
+          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 --build-mode=Release WallCycle.lpi
+
+          cp bin/WallCycle ~/rpmbuild/SOURCES/WallCycle
+          cp wallcycle.desktop ~/rpmbuild/SOURCES/wallcycle.desktop
+          cp README.md ~/rpmbuild/SOURCES/README.md
+          rpmbuild -bb --define "_version ${{ needs.resolve-version.outputs.version }}" wallcycle.spec
+          cp ~/rpmbuild/RPMS/x86_64/wallcycle-*.rpm "wallcycle-${{ needs.resolve-version.outputs.version }}-1.fedora.x86_64.rpm"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-rpm-fedora
+          path: wallcycle-*.fedora.x86_64.rpm
+
+  build-rpm-opensuse:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    container: opensuse/tumbleweed
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installa FPC, Lazarus e rpm-build su openSUSE
+        run: |
+          zypper --non-interactive --gpg-auto-import-keys ar -f https://download.opensuse.org/repositories/devel:/languages:/pascal/openSUSE_Tumbleweed/devel:languages:pascal.repo
+          zypper --non-interactive --gpg-auto-import-keys refresh
+          zypper --non-interactive install fpc lazarus-ide rpm-build git
+
+      - name: Compila e impacchetta RPM openSUSE
+        run: |
+          git clone --depth=1 https://github.com/blikblum/luipack.git /tmp/luipack
+          mkdir -p /tmp/lazcfg ~/rpmbuild/{SOURCES,SPECS,RPMS,BUILD,SRPMS}
+          lazbuild --pcp=/tmp/lazcfg --add-package-link=/tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
+          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
+          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 --build-mode=Release WallCycle.lpi
+
+          cp bin/WallCycle ~/rpmbuild/SOURCES/WallCycle
+          cp wallcycle.desktop ~/rpmbuild/SOURCES/wallcycle.desktop
+          cp README.md ~/rpmbuild/SOURCES/README.md
+          rpmbuild -bb --define "_version ${{ needs.resolve-version.outputs.version }}" wallcycle.spec
+          cp ~/rpmbuild/RPMS/x86_64/wallcycle-*.rpm "wallcycle-${{ needs.resolve-version.outputs.version }}-1.opensuse.x86_64.rpm"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-rpm-opensuse
+          path: wallcycle-*.opensuse.x86_64.rpm
+
+  build-windows-installer:
+    needs: resolve-version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Lazarus Stable (Windows x64)
+        uses: gcarreno/setup-lazarus@v3
+        with:
+          lazarus-version: 'stable'
+
+      - name: Compila TUniqueInstance e WallCycle.exe
+        shell: pwsh
+        run: |
+          git clone --depth=1 https://github.com/blikblum/luipack.git "$env:TEMP\luipack"
+          New-Item -ItemType Directory -Force -Path "$env:TEMP\lazcfg" | Out-Null
+          lazbuild --pcp="$env:TEMP\lazcfg" --add-package-link="$env:TEMP\luipack\uniqueinstance\uniqueinstance_package.lpk"
+          lazbuild --pcp="$env:TEMP\lazcfg" "$env:TEMP\luipack\uniqueinstance\uniqueinstance_package.lpk"
+          lazbuild --pcp="$env:TEMP\lazcfg" --os=win64 --cpu=x86_64 --build-mode=Release WallCycle.lpi
+
+      - name: Compila installer Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y
+          }
+          & $iscc "/DAppVersion=${{ needs.resolve-version.outputs.version }}" wallcycle.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-windows-installer
+          path: dist-installer/WallCycle-Setup-*.exe
+
+  publish-release:
+    needs: [resolve-version, build-deb, build-rpm-fedora, build-rpm-opensuse, build-windows-installer]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Crea GitHub Release con pacchetti .deb, .rpm e .exe
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/*.deb
+            artifacts/*.rpm
+            artifacts/*.exe
