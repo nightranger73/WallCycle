@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Initial release (v0.1.0)'
+        description: 'Fix (v0.1.1e)'
         required: true
         default: '1.0.0'
 
@@ -115,3 +115,4 @@ jobs:
           files: |
             artifacts/*.deb
             artifacts/*.exe
+
