@@ -1,8 +1,7 @@
 # Copia questo file in .github/workflows/release.yml nel tuo repository GitHub.
 # Ogni push di un tag v* (es. git tag v1.0.0 && git push --tags) genera:
 #   - wallcycle_<version>_amd64.deb (Debian / Ubuntu / Mint)
-#   - wallcycle-<version>-1.fedora.x86_64.rpm (Fedora)
-#   - wallcycle-<version>-1.opensuse.x86_64.rpm (openSUSE Tumbleweed / Leap)
+#   - WallCycle-<version>-x86_64.AppImage (AppImage universale Linux)
 #   - WallCycle-Setup-<version>-x64.exe (Windows 64-bit Installer)
 
 name: Release WallCycle Packages
@@ -14,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Versione pacchetto (es. 1.0.0)'
+        description: 'Fix (v0.1.1e)'
         required: true
         default: '1.0.0'
 
@@ -68,6 +67,11 @@ jobs:
     needs: [resolve-version, build-deb]
     runs-on: ubuntu-22.04
     steps:
+      - name: Installa librerie runtime GTK2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk2.0-0
+
       - name: Scarica artefatto .deb
         uses: actions/download-artifact@v4
         with:
@@ -78,15 +82,13 @@ jobs:
           ARCH: x86_64
           APPIMAGE_EXTRACT_AND_RUN: 1
           VERSION: ${{ needs.resolve-version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           dpkg-deb -x wallcycle_*.deb AppDir
-          HOST="https://github.com"
-          REPO="linuxdeploy/linuxdeploy/releases/download/continuous"
-          FILE="linuxdeploy-x86_64.AppImage"
-          wget -q "${HOST}/${REPO}/${FILE}"
-          chmod +x "$FILE"
+          gh release download continuous -R linuxdeploy/linuxdeploy -p "linuxdeploy-x86_64.AppImage"
+          chmod +x linuxdeploy-x86_64.AppImage
           DESKTOP_FILE=$(find AppDir/usr/share/applications -name "*.desktop" | head -n 1)
-          ./"$FILE" --appdir AppDir --desktop-file "$DESKTOP_FILE" --output appimage
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --desktop-file "$DESKTOP_FILE" --output appimage
 
       - uses: actions/upload-artifact@v4
         with:
