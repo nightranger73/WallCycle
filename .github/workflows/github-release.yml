@@ -99,7 +99,7 @@ jobs:
           path: dist-installer/WallCycle-Setup-*.exe
 
   publish-release:
-    needs: [resolve-version, build-deb, build-rpm-fedora, build-rpm-opensuse, build-windows-installer]
+    needs: [resolve-version, build-deb, build-windows-installer]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
