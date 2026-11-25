@@ -13,10 +13,10 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Versione pacchetto (es. 1.0.0)'
+      version: 0.1.0
+        description: 'First release'
         required: true
-        default: '1.0.0'
+        default: '0.1.0'
 
 permissions:
   contents: write
@@ -80,8 +80,8 @@ jobs:
           git clone --depth=1 https://github.com/blikblum/luipack.git /tmp/luipack
           mkdir -p /tmp/lazcfg ~/rpmbuild/{SOURCES,SPECS,RPMS,BUILD,SRPMS}
           lazbuild --pcp=/tmp/lazcfg --add-package-link=/tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
-          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
-          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 --build-mode=Release WallCycle.lpi
+          lazbuild --pcp=/tmp/lazcfg --widgetset=qt6 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
+          lazbuild --pcp=/tmp/lazcfg --widgetset=qt6 --build-mode=Release WallCycle.lpi
 
           cp bin/WallCycle ~/rpmbuild/SOURCES/WallCycle
           cp wallcycle.desktop ~/rpmbuild/SOURCES/wallcycle.desktop
@@ -112,8 +112,8 @@ jobs:
           git clone --depth=1 https://github.com/blikblum/luipack.git /tmp/luipack
           mkdir -p /tmp/lazcfg ~/rpmbuild/{SOURCES,SPECS,RPMS,BUILD,SRPMS}
           lazbuild --pcp=/tmp/lazcfg --add-package-link=/tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
-          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
-          lazbuild --pcp=/tmp/lazcfg --widgetset=gtk2 --build-mode=Release WallCycle.lpi
+          lazbuild --pcp=/tmp/lazcfg --widgetset=qt6 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
+          lazbuild --pcp=/tmp/lazcfg --widgetset=qt6 --build-mode=Release WallCycle.lpi
 
           cp bin/WallCycle ~/rpmbuild/SOURCES/WallCycle
           cp wallcycle.desktop ~/rpmbuild/SOURCES/wallcycle.desktop
