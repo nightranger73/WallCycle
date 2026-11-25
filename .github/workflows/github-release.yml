@@ -85,6 +85,7 @@ jobs:
 
           DESKTOP_FILE=$(find AppDir/usr/share/applications -name "*.desktop" | head -n 1)
           sed -i 's/^Icon=.*/Icon=wallcycle/' "$DESKTOP_FILE"
+          sed -i 's|^Exec=/usr/bin/|Exec=|' "$DESKTOP_FILE"
 
           gh release download continuous -R linuxdeploy/linuxdeploy -p "linuxdeploy-x86_64.AppImage"
           chmod +x linuxdeploy-x86_64.AppImage
