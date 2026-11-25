@@ -1,9 +1,3 @@
-# Copia questo file in .github/workflows/release.yml nel tuo repository GitHub.
-# Ogni push di un tag v* (es. git tag v1.0.0 && git push --tags) genera:
-#   - wallcycle_<version>_amd64.deb (Debian / Ubuntu / Mint)
-#   - WallCycle-<version>-x86_64.AppImage (AppImage universale Linux)
-#   - WallCycle-Setup-<version>-x64.exe (Windows 64-bit Installer)
-
 name: Release WallCycle Packages
 
 on:
@@ -67,10 +61,10 @@ jobs:
     needs: [resolve-version, build-deb]
     runs-on: ubuntu-22.04
     steps:
-      - name: Installa librerie runtime GTK2
+      - name: Installa librerie GTK2 e icone
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk2.0-0
+          sudo apt-get install -y libgtk2.0-0 adwaita-icon-theme librsvg2-bin
 
       - name: Scarica artefatto .deb
         uses: actions/download-artifact@v4
@@ -85,10 +79,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           dpkg-deb -x wallcycle_*.deb AppDir
+
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          rsvg-convert -w 256 -h 256 /usr/share/icons/Adwaita/scalable/apps/preferences-desktop-wallpaper-symbolic.svg -o AppDir/usr/share/icons/hicolor/256x256/apps/wallcycle.png
+
+          DESKTOP_FILE=$(find AppDir/usr/share/applications -name "*.desktop" | head -n 1)
+          sed -i 's/^Icon=.*/Icon=wallcycle/' "$DESKTOP_FILE"
+
           gh release download continuous -R linuxdeploy/linuxdeploy -p "linuxdeploy-x86_64.AppImage"
           chmod +x linuxdeploy-x86_64.AppImage
-          DESKTOP_FILE=$(find AppDir/usr/share/applications -name "*.desktop" | head -n 1)
-          ./linuxdeploy-x86_64.AppImage --appdir AppDir --desktop-file "$DESKTOP_FILE" --output appimage
+          ./linuxdeploy-x86_64.AppImage             --appdir AppDir             --desktop-file "$DESKTOP_FILE"             --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/wallcycle.png             --output appimage
 
       - uses: actions/upload-artifact@v4
         with:
