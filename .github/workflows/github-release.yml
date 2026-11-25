@@ -64,68 +64,6 @@ jobs:
           name: pkg-deb
           path: wallcycle_*.deb
 
-  build-rpm-fedora:
-    needs: resolve-version
-    runs-on: ubuntu-latest
-    container: fedora:latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Installa FPC, Lazarus e rpm-build su Fedora
-        run: |
-          dnf install -y fpc lazarus rpm-build git
-
-      - name: Compila e impacchetta RPM Fedora
-        run: |
-          git clone --depth=1 https://github.com/blikblum/luipack.git /tmp/luipack
-          mkdir -p /tmp/lazcfg ~/rpmbuild/{SOURCES,SPECS,RPMS,BUILD,SRPMS}
-          lazbuild --pcp=/tmp/lazcfg --add-package-link=/tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
-          lazbuild --pcp=/tmp/lazcfg --widgetset=qt6 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
-          lazbuild --pcp=/tmp/lazcfg --widgetset=qt6 --build-mode=Release WallCycle.lpi
-
-          cp bin/WallCycle ~/rpmbuild/SOURCES/WallCycle
-          cp wallcycle.desktop ~/rpmbuild/SOURCES/wallcycle.desktop
-          cp README.md ~/rpmbuild/SOURCES/README.md
-          rpmbuild -bb --define "_version ${{ needs.resolve-version.outputs.version }}" wallcycle.spec
-          cp ~/rpmbuild/RPMS/x86_64/wallcycle-*.rpm "wallcycle-${{ needs.resolve-version.outputs.version }}-1.fedora.x86_64.rpm"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pkg-rpm-fedora
-          path: wallcycle-*.fedora.x86_64.rpm
-
-  build-rpm-opensuse:
-    needs: resolve-version
-    runs-on: ubuntu-latest
-    container: opensuse/tumbleweed
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Installa FPC, Lazarus e rpm-build su openSUSE
-        run: |
-          zypper --non-interactive --gpg-auto-import-keys ar -f https://download.opensuse.org/repositories/devel:/languages:/pascal/openSUSE_Tumbleweed/devel:languages:pascal.repo
-          zypper --non-interactive --gpg-auto-import-keys refresh
-          zypper --non-interactive install fpc lazarus-ide rpm-build git
-
-      - name: Compila e impacchetta RPM openSUSE
-        run: |
-          git clone --depth=1 https://github.com/blikblum/luipack.git /tmp/luipack
-          mkdir -p /tmp/lazcfg ~/rpmbuild/{SOURCES,SPECS,RPMS,BUILD,SRPMS}
-          lazbuild --pcp=/tmp/lazcfg --add-package-link=/tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
-          lazbuild --pcp=/tmp/lazcfg --widgetset=qt6 /tmp/luipack/uniqueinstance/uniqueinstance_package.lpk
-          lazbuild --pcp=/tmp/lazcfg --widgetset=qt6 --build-mode=Release WallCycle.lpi
-
-          cp bin/WallCycle ~/rpmbuild/SOURCES/WallCycle
-          cp wallcycle.desktop ~/rpmbuild/SOURCES/wallcycle.desktop
-          cp README.md ~/rpmbuild/SOURCES/README.md
-          rpmbuild -bb --define "_version ${{ needs.resolve-version.outputs.version }}" wallcycle.spec
-          cp ~/rpmbuild/RPMS/x86_64/wallcycle-*.rpm "wallcycle-${{ needs.resolve-version.outputs.version }}-1.opensuse.x86_64.rpm"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pkg-rpm-opensuse
-          path: wallcycle-*.opensuse.x86_64.rpm
-
   build-windows-installer:
     needs: resolve-version
     runs-on: windows-latest
@@ -176,5 +114,4 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/*.deb
-            artifacts/*.rpm
             artifacts/*.exe
