@@ -16,7 +16,7 @@ on:
       version:
         description: 'Initial release (v0.1.0)'
         required: true
-        default: '0.1.0'
+        default: '1.0.0'
 
 permissions:
   contents: write
