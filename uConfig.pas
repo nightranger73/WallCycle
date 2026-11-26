@@ -10,6 +10,16 @@ uses
 type
   TOverlayCorner = (ocTopLeft, ocTopRight, ocBottomLeft, ocBottomRight);
 
+  TWallpaperTransition = (
+    wtNone,
+    wtFade,
+    wtWipe,
+    wtLeft,
+    wtRight,
+    wtCenter,
+    wtRandom
+  );
+
   TLinuxBackendMode = (
     lbAuto,
     lbGnome,
@@ -49,6 +59,8 @@ type
     IntervalMinutes: Integer;
     IncludeSubfolders: Boolean;
     ShuffleOrder: Boolean;
+    TransitionStyle: TWallpaperTransition;
+    TransitionDurationMs: Integer;
     Sources: TObjectList; // Owns TWallpaperSource items
 
     // Date & Time overlay preferences
@@ -99,6 +111,8 @@ type
 
 function CornerToStr(C: TOverlayCorner): string;
 function StrToCorner(const S: string): TOverlayCorner;
+function TransitionToStr(T: TWallpaperTransition): string;
+function StrToTransition(const S: string): TWallpaperTransition;
 function BackendToStr(B: TLinuxBackendMode): string;
 function StrToBackend(const S: string): TLinuxBackendMode;
 function SourceKindToStr(K: TSourceKind): string;
@@ -124,6 +138,35 @@ begin
   if S = 'bottom-left' then Exit(ocBottomLeft);
   if S = 'bottom-right' then Exit(ocBottomRight);
   Result := ocTopRight;
+end;
+
+function TransitionToStr(T: TWallpaperTransition): string;
+begin
+  case T of
+    wtNone: Result := 'none';
+    wtFade: Result := 'fade';
+    wtWipe: Result := 'wipe';
+    wtLeft: Result := 'left';
+    wtRight: Result := 'right';
+    wtCenter: Result := 'center';
+    wtRandom: Result := 'random';
+  else
+    Result := 'fade';
+  end;
+end;
+
+function StrToTransition(const S: string): TWallpaperTransition;
+var
+  LowS: string;
+begin
+  LowS := LowerCase(Trim(S));
+  if LowS = 'none' then Exit(wtNone);
+  if LowS = 'wipe' then Exit(wtWipe);
+  if LowS = 'left' then Exit(wtLeft);
+  if LowS = 'right' then Exit(wtRight);
+  if LowS = 'center' then Exit(wtCenter);
+  if LowS = 'random' then Exit(wtRandom);
+  Result := wtFade;
 end;
 
 function BackendToStr(B: TLinuxBackendMode): string;
@@ -203,7 +246,7 @@ begin
     Result := Format('[WallHaven.cc] "%s" (%s · Cat:%s · Pur:%s)',
       [Target, Sorting, Categories, Purity])
   else
-    Result := '[Cartella PC] ' + Target;
+    Result := '[PC Folder] ' + Target;
 end;
 
 function TWallpaperSource.GetWallHavenSubDir(const BaseCacheDir: string): string;
@@ -235,6 +278,8 @@ begin
   IntervalMinutes := 15;
   IncludeSubfolders := True;
   ShuffleOrder := True;
+  TransitionStyle := wtFade;
+  TransitionDurationMs := 600;
 
   OverlayEnabled := True;
   OverlayCorner := ocTopRight;
@@ -260,7 +305,7 @@ begin
   WallHavenPurity := '100';
   WallHavenMaxPages := 10;
   WallHavenCacheDir := GetDefaultCacheDir;
-  WallHavenMaxCached := 300;
+  WallHavenMaxCached := 100;
 
   LinuxBackend := lbAuto;
   StartMinimized := False;
@@ -360,6 +405,10 @@ begin
     if IntervalMinutes < 1 then IntervalMinutes := 1;
     IncludeSubfolders := Obj.Get('includeSubfolders', IncludeSubfolders);
     ShuffleOrder := Obj.Get('shuffleOrder', ShuffleOrder);
+    TransitionStyle := StrToTransition(Obj.Get('transitionStyle', TransitionToStr(TransitionStyle)));
+    TransitionDurationMs := Obj.Get('transitionDurationMs', TransitionDurationMs);
+    if TransitionDurationMs < 200 then TransitionDurationMs := 200;
+    if TransitionDurationMs > 3000 then TransitionDurationMs := 3000;
 
     Arr := Obj.Get('sources', TJSONArray(nil));
     if Arr <> nil then
@@ -425,7 +474,8 @@ begin
     if WallHavenMaxPages > 25 then WallHavenMaxPages := 25;
     WallHavenCacheDir := Obj.Get('wallHavenCacheDir', GetDefaultCacheDir);
     WallHavenMaxCached := Obj.Get('wallHavenMaxCached', WallHavenMaxCached);
-    if WallHavenMaxCached < 20 then WallHavenMaxCached := 100;
+    if WallHavenMaxCached < 5 then WallHavenMaxCached := 5;
+    if WallHavenMaxCached > 2000 then WallHavenMaxCached := 2000;
 
     LinuxBackend := StrToBackend(Obj.Get('linuxBackend', BackendToStr(LinuxBackend)));
     StartMinimized := Obj.Get('startMinimized', StartMinimized);
@@ -450,6 +500,8 @@ begin
     Obj.Add('intervalMinutes', IntervalMinutes);
     Obj.Add('includeSubfolders', IncludeSubfolders);
     Obj.Add('shuffleOrder', ShuffleOrder);
+    Obj.Add('transitionStyle', TransitionToStr(TransitionStyle));
+    Obj.Add('transitionDurationMs', TransitionDurationMs);
 
     Arr := TJSONArray.Create;
     for I := 0 to Sources.Count - 1 do

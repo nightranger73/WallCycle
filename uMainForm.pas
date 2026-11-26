@@ -11,11 +11,7 @@ uses
   uWallpaperBackend, uWallHavenClient;
 
 type
-
-  { TMainForm }
-
   TMainForm = class(TForm)
-    Label1: TLabel;
     PageControl1: TPageControl;
     TabSources: TTabSheet;
     TabOverlay: TTabSheet;
@@ -45,6 +41,8 @@ type
     SpinMaxPages: TSpinEdit;
     LblApiKey: TLabel;
     EditApiKey: TEdit;
+    LblMaxCached: TLabel;
+    SpinMaxCached: TSpinEdit;
     BtnAddWallHaven: TButton;
     BtnFetchWallHaven: TButton;
 
@@ -60,6 +58,10 @@ type
     ChkShuffle: TCheckBox;
     LblInterval: TLabel;
     SpinIntervalMin: TSpinEdit;
+    LblTransition: TLabel;
+    ComboTransition: TComboBox;
+    LblTransitionDur: TLabel;
+    SpinTransitionMs: TSpinEdit;
     BtnPrevWallpaper: TButton;
     BtnPauseResume: TButton;
     BtnNextWallpaper: TButton;
@@ -161,6 +163,7 @@ type
     FAllowClose: Boolean;
     FAutoSelectOnReady: Boolean;
     FLoadingUI: Boolean;
+    FTransitionToken: Integer;
 
     procedure LogMsg(const S: string);
     procedure SyncChecklistFromConfig;
@@ -172,6 +175,7 @@ type
     procedure ScheduleNextTick;
     procedure AdvanceWallpaper(Step: Integer);
     procedure ApplyCurrentImageWithOverlay;
+    procedure ApplyWallpaperWithTransition(const PrevSourceImage: string);
     procedure UpdateLuminanceLabels;
     procedure PopulateSystemFonts;
     procedure SelectFontInCombo(CB: TComboBox; const FontName: string);
@@ -275,13 +279,14 @@ begin
   FAllowClose := False;
   FAutoSelectOnReady := False;
   FLoadingUI := False;
+  FTransitionToken := 0;
 
   Randomize;
   PopulateSystemFonts;
   ConfigToUI;
-  LblDetectedDE.Caption := 'Detected Environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
+  LblDetectedDE.Caption := 'Detected environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
 
-  TrayIcon1.Hint := 'WallCycle — Click: Next wallpaper';
+  TrayIcon1.Hint := 'WallCycle — Click: next wallpaper';
   TrayIcon1.Visible := True;
   UpdateWallHavenInfoActions;
 
@@ -355,6 +360,9 @@ begin
     ChkSubfolders.Checked := FConfig.IncludeSubfolders;
     ChkShuffle.Checked := FConfig.ShuffleOrder;
     SpinIntervalMin.Value := FConfig.IntervalMinutes;
+    ComboTransition.ItemIndex := Ord(FConfig.TransitionStyle);
+    SpinTransitionMs.Value := EnsureRange(FConfig.TransitionDurationMs,
+      SpinTransitionMs.MinValue, SpinTransitionMs.MaxValue);
 
     EditApiKey.Text := FConfig.WallHavenApiKey;
     if ComboSorting.Items.Count > 0 then ComboSorting.ItemIndex := 0;
@@ -365,6 +373,7 @@ begin
     ChkPurSketchy.Checked := (Length(FConfig.WallHavenPurity) >= 2) and (FConfig.WallHavenPurity[2] = '1');
     ChkPurNSFW.Checked := (Length(FConfig.WallHavenPurity) >= 3) and (FConfig.WallHavenPurity[3] = '1');
     SpinMaxPages.Value := EnsureRange(FConfig.WallHavenMaxPages, SpinMaxPages.MinValue, SpinMaxPages.MaxValue);
+    SpinMaxCached.Value := EnsureRange(FConfig.WallHavenMaxCached, SpinMaxCached.MinValue, SpinMaxCached.MaxValue);
 
     ChkDarkFilter.Checked := FConfig.DarkFilterEnabled;
     TrackMaxLum.Position := Round(FConfig.MaxLuminance * 100);
@@ -424,11 +433,15 @@ begin
   FConfig.IncludeSubfolders := ChkSubfolders.Checked;
   FConfig.ShuffleOrder := ChkShuffle.Checked;
   FConfig.IntervalMinutes := SpinIntervalMin.Value;
+  if ComboTransition.ItemIndex >= 0 then
+    FConfig.TransitionStyle := TWallpaperTransition(ComboTransition.ItemIndex);
+  FConfig.TransitionDurationMs := SpinTransitionMs.Value;
 
   FConfig.WallHavenApiKey := Trim(EditApiKey.Text);
   FConfig.WallHavenCategories := GetWallHavenCategoriesStr;
   FConfig.WallHavenPurity := GetWallHavenPurityStr;
   FConfig.WallHavenMaxPages := SpinMaxPages.Value;
+  FConfig.WallHavenMaxCached := SpinMaxCached.Value;
 
   FConfig.DarkFilterEnabled := ChkDarkFilter.Checked;
   FConfig.MaxLuminance := TrackMaxLum.Position / 100.0;
@@ -457,8 +470,8 @@ end;
 
 procedure TMainForm.UpdateLuminanceLabels;
 begin
-  LblMaxLum.Caption := Format('Max global Brightness allowed: %d%%', [TrackMaxLum.Position]);
-  LblIconLum.Caption := Format('Max Brightness for icons zone: %d%%', [TrackIconLum.Position]);
+  LblMaxLum.Caption := Format('Global max luminance: %d%%', [TrackMaxLum.Position]);
+  LblIconLum.Caption := Format('Icon-zone max luminance (24%%): %d%%', [TrackIconLum.Position]);
 end;
 
 procedure TMainForm.TrackMaxLumChange(Sender: TObject);
@@ -538,7 +551,7 @@ begin
   FScanThread := TPlaylistScanThread.Create(FConfig, FLuminanceCache);
   // Poll briefly during initial async discovery (~150ms), then align to 1-minute boundary
   ScheduleNextTick;
-  LogMsg('Scanning sources in background...');
+  LogMsg('Background source scan started...');
 end;
 
 procedure TMainForm.PollScanThread;
@@ -555,7 +568,7 @@ begin
     begin
       FPlaylist.Assign(NewList);
       FCurrentIndex := -1;
-      LogMsg(Format('Found %d files in active sources (indexing brightness in background).',
+      LogMsg(Format('Found %d files in active sources (indexing luminance in background).',
         [FPlaylist.Count]));
 
       if FAutoSelectOnReady and (FPlaylist.Count > 0) then
@@ -579,7 +592,7 @@ begin
   if not State.Running then
   begin
     if FConfig.DarkFilterEnabled then
-      LogMsg(Format('Index completed: %d valid, discarded too bright (%d local, %d WallHaven).',
+      LogMsg(Format('Indexing complete: %d eligible, skipped too bright (%d local PC, %d WallHaven).',
         [FPlaylist.Count, State.RejectedLocal, State.RejectedWallHaven]));
 
     FScanThread.WaitFor;
@@ -603,22 +616,126 @@ begin
   if not RenderWallpaperWithClock(FCurrentSourceImage, RenderDir, FConfig,
     FToggleSlot, RenderedPath) then
   begin
-    LogMsg('Error rendering overlay on: ' + FCurrentSourceImage);
+    LogMsg('Overlay rendering error on: ' + FCurrentSourceImage);
     Exit;
   end;
 
   UpdateWallHavenInfoActions;
-  Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend);
+  Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend, wtNone, 0);
   if Res.Success then
-    LblCurrentFile.Caption := 'Active Wallpaper: ' + ExtractFileName(FCurrentSourceImage)
+    LblCurrentFile.Caption := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage)
   else
-    LogMsg('backend error [' + Res.BackendName + ']: ' + Res.Message);
+    LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
+end;
+
+procedure TMainForm.ApplyWallpaperWithTransition(const PrevSourceImage: string);
+var
+  RenderDir, RenderedPath: string;
+  Res: TBackendResult;
+  H, M, S, MS: Word;
+  NextBmp, PrevBmp: TBitmap;
+  ActiveTrans: TWallpaperTransition;
+  Steps, StepDelay, I, MyToken: Integer;
+  Progress, Eased: Double;
+  UseFastBMP: Boolean;
+begin
+  if (FCurrentSourceImage = '') or (not FileExists(FCurrentSourceImage)) then Exit;
+
+  Inc(FTransitionToken);
+  MyToken := FTransitionToken;
+
+  DecodeTime(Now, H, M, S, MS);
+  FLastMinuteRendered := M;
+  UpdateWallHavenInfoActions;
+
+  RenderDir := IncludeTrailingPathDelimiter(GetAppConfigDir(False)) + 'rendered';
+  NextBmp := CreateRenderedWallpaperBitmap(FCurrentSourceImage, FConfig);
+  if NextBmp = nil then
+  begin
+    LogMsg('Overlay rendering error on: ' + FCurrentSourceImage);
+    Exit;
+  end;
+
+  try
+    if (FConfig.TransitionStyle = wtNone) or (PrevSourceImage = '') or
+       SameFileName(PrevSourceImage, FCurrentSourceImage) or (not FileExists(PrevSourceImage)) then
+    begin
+      if RenderWallpaperFromBitmap(NextBmp, RenderDir, False, FToggleSlot, RenderedPath) then
+      begin
+        Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend, wtNone, 0);
+        if Res.Success then
+          LblCurrentFile.Caption := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage)
+        else
+          LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
+      end;
+      Exit;
+    end;
+
+    if BackendHasNativeTransition(FConfig.LinuxBackend) then
+    begin
+      if RenderWallpaperFromBitmap(NextBmp, RenderDir, False, FToggleSlot, RenderedPath) then
+      begin
+        Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend,
+          FConfig.TransitionStyle, FConfig.TransitionDurationMs);
+        if Res.Success then
+          LblCurrentFile.Caption := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage)
+        else
+          LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
+      end;
+      Exit;
+    end;
+
+    ActiveTrans := FConfig.TransitionStyle;
+    if ActiveTrans = wtRandom then
+      ActiveTrans := TWallpaperTransition(Ord(wtFade) + Random(5));
+
+    PrevBmp := CreateRenderedWallpaperBitmap(PrevSourceImage, FConfig);
+    try
+      if PrevBmp <> nil then
+      begin
+        Steps := RecommendedSoftwareTransitionSteps(FConfig.LinuxBackend);
+        StepDelay := Max(25, FConfig.TransitionDurationMs div Steps);
+        {$IFDEF WINDOWS}
+        UseFastBMP := True;
+        {$ELSE}
+        UseFastBMP := False;
+        {$ENDIF}
+
+        for I := 1 to Steps - 1 do
+        begin
+          if (MyToken <> FTransitionToken) or Application.Terminated then Exit;
+          Progress := I / Steps;
+          Eased := Progress * Progress * (3.0 - 2.0 * Progress);
+          if RenderTransitionStep(PrevBmp, NextBmp, ActiveTrans, Eased, RenderDir,
+               UseFastBMP, FToggleSlot, RenderedPath) then
+            ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend, wtNone, 0);
+          Application.ProcessMessages;
+          if (MyToken <> FTransitionToken) or Application.Terminated then Exit;
+          Sleep(StepDelay);
+        end;
+      end;
+    finally
+      PrevBmp.Free;
+    end;
+
+    if (MyToken <> FTransitionToken) or Application.Terminated then Exit;
+    if RenderWallpaperFromBitmap(NextBmp, RenderDir, False, FToggleSlot, RenderedPath) then
+    begin
+      Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend, wtNone, 0);
+      if Res.Success then
+        LblCurrentFile.Caption := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage)
+      else
+        LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
+    end;
+  finally
+    NextBmp.Free;
+  end;
 end;
 
 procedure TMainForm.AdvanceWallpaper(Step: Integer);
 var
   Attempts: Integer;
-  Candidate: string;
+  Candidate, PrevImg: string;
   Stats: TLuminanceStats;
 begin
   if FPlaylist.Count = 0 then
@@ -648,10 +765,10 @@ begin
         FConfig.IconZoneMaxLuminance, FConfig.CheckIconZone, Stats, FLuminanceCache) then
       begin
         if not Stats.Valid then
-          LogMsg(Format('Discarded corrupt image (%s): %s',
+          LogMsg(Format('Skipped corrupted image (%s): %s',
             [Stats.ErrorReason, ExtractFileName(Candidate)]))
         else
-          LogMsg(Format('Discarded image too bright (Avg=%.0f%%, Icon=%.0f%%): %s',
+          LogMsg(Format('Skipped image too bright (Avg=%.0f%%, Icon=%.0f%%): %s',
             [Stats.AverageLuminance * 100, Stats.IconZoneLuminance * 100, ExtractFileName(Candidate)]));
         Continue;
       end;
@@ -666,22 +783,23 @@ begin
       end;
       if not Stats.Valid then
       begin
-        LogMsg(Format('Discarded corrupt image (%s): %s',
+        LogMsg(Format('Skipped corrupted image (%s): %s',
           [Stats.ErrorReason, ExtractFileName(Candidate)]));
         Continue;
       end;
     end;
 
+    PrevImg := FCurrentSourceImage;
     FCurrentSourceImage := Candidate;
     FRemainingSeconds := Max(1, FConfig.IntervalMinutes) * 60;
     FLastTickTime := Now;
-    ApplyCurrentImageWithOverlay;
+    ApplyWallpaperWithTransition(PrevImg);
     ScheduleNextTick;
-    LogMsg('Applied Wallpaper: ' + ExtractFileName(Candidate));
+    LogMsg('Applied wallpaper: ' + ExtractFileName(Candidate));
     Exit;
   end;
 
-  LogMsg('No valid images found. All images are too bright. Lower the threshold.');
+  LogMsg('All images in active sources exceed the luminance threshold.');
 end;
 
 procedure TMainForm.TickTimerTimer(Sender: TObject);
@@ -755,12 +873,12 @@ begin
   CatStr := GetWallHavenCategoriesStr;
   PurStr := GetWallHavenPurityStr;
   if (Copy(PurStr, 3, 1) = '1') and (Trim(FConfig.WallHavenApiKey) = '') then
-    LogMsg('Note: Wallhaven NSFW filter requires a valid API Key.');
+    LogMsg('Note: WallHaven NSFW filter requires a valid API Key.');
 
   FConfig.AddWallHavenSource(Trim(EditQuery.Text), SortStr, CatStr, PurStr, True);
   FConfig.Save;
   SyncChecklistFromConfig;
-  LogMsg(Format('Added and activated WallHaven.cc source: "%s" (%s · Cat:%s · Pur:%s)',
+  LogMsg(Format('Added and enabled WallHaven.cc source: "%s" (%s · Cat:%s · Pur:%s)',
     [Trim(EditQuery.Text), SortStr, CatStr, PurStr]));
 end;
 
@@ -808,15 +926,15 @@ begin
   FLastTickTime := Now;
   if FPaused then
   begin
-    BtnPauseResume.Caption := 'Unpause Slideshow';
-    MnuPause.Caption := 'Unpause Slideshow';
+    BtnPauseResume.Caption := 'Resume Slideshow';
+    MnuPause.Caption := 'Resume Slideshow';
     LogMsg('Slideshow paused.');
   end
   else
   begin
     BtnPauseResume.Caption := 'Pause Slideshow';
     MnuPause.Caption := 'Pause Slideshow';
-    LogMsg('Slideshow restarted.');
+    LogMsg('Slideshow resumed.');
   end;
   ScheduleNextTick;
 end;
@@ -954,7 +1072,7 @@ begin
   try
     DateStr := FormatDateTime(DateFmt, Now);
   except
-    DateStr := 'lun 23 nov 2026';
+    DateStr := 'Mon 23 Nov 2026';
   end;
 
   TimeFontName := GetSelectedFontName(ComboTimeFont, 'Sans');
@@ -1059,7 +1177,7 @@ var
   Files: TStringList;
   Stats: TWallHavenFetchStats;
   I, EnabledWH, MaxPerSrc: Integer;
-  SortStr, CatStr, PurStr: string;
+  SortStr, CatStr, PurStr, PrevImg: string;
 begin
   LoadUIToConfig;
   CatStr := GetWallHavenCategoriesStr;
@@ -1080,45 +1198,46 @@ begin
         SortStr := 'toplist';
       FConfig.AddWallHavenSource(Trim(EditQuery.Text), SortStr, CatStr, PurStr, True);
       SyncChecklistFromConfig;
-      LogMsg(Format('No WallHaven sources: automatically added "%s" (%s · Cat:%s · Pur:%s).',
+      LogMsg(Format('No WallHaven source checked: automatically enabled "%s" (%s · Cat:%s · Pur:%s).',
         [Trim(EditQuery.Text), SortStr, CatStr, PurStr]));
     end
     else
     begin
-      LogMsg('No WallHaven sources on the checklist. Add or tick one source.');
+      LogMsg('No active WallHaven.cc source in checklist. Add or check at least one source.');
       Exit;
     end;
   end;
 
   if (Copy(PurStr, 3, 1) = '1') and (Trim(FConfig.WallHavenApiKey) = '') then
-    LogMsg('Warning: purity NSFW selected without API Key; WallHaven might give empty responses or HTTP 401.');
+    LogMsg('Warning: NSFW purity selected without API Key; WallHaven may return empty results or HTTP 401.');
 
   FConfig.Save;
   BtnFetchWallHaven.Enabled := False;
   try
-    LogMsg(Format('Downloading active WallHaven.cc sources (Depth %d pages)...',
-      [FConfig.WallHavenMaxPages]));
+    LogMsg(Format('Fetching from active WallHaven.cc sources (up to %d pages deep, max %d cached)...',
+      [FConfig.WallHavenMaxPages, FConfig.WallHavenMaxCached]));
     Application.ProcessMessages;
-    MaxPerSrc := Max(12, FConfig.WallHavenMaxPages * 3);
+    MaxPerSrc := Min(Max(12, FConfig.WallHavenMaxPages * 3), Max(5, FConfig.WallHavenMaxCached));
     Stats := FetchAllEnabledWallHavenSources(FConfig, MaxPerSrc, Files);
     try
       if Stats.LastError <> '' then
         LogMsg(Stats.LastError);
 
-      LogMsg(Format('WallHaven (%d pag.): %d analyzed, %d discarded (palette), %d discarded (pixel), %d ready.',
+      LogMsg(Format('WallHaven (%d pg.): %d examined, %d skipped (palette), %d skipped (pixels), %d ready.',
         [Stats.PagesScanned, Stats.CandidatesExamined, Stats.RejectedByPalette, Stats.RejectedByPixels, Stats.DownloadedCount]));
 
       if (Stats.DownloadedCount = 0) and (Stats.CandidatesExamined > 0) and
          ((Stats.RejectedByPalette + Stats.RejectedByPixels) >= Stats.CandidatesExamined) then
-        LogMsg('Tip: all the images analyzed where beyond brightness thesholdo (Try raising the threshold or untick the filter');
+        LogMsg('Tip: all examined images exceeded the luminance threshold (try raising thresholds or disabling the filter).');
 
       StartAsyncScan(Files.Count = 0);
       if Files.Count > 0 then
       begin
+        PrevImg := FCurrentSourceImage;
         FCurrentSourceImage := Files[0];
         FRemainingSeconds := Max(1, FConfig.IntervalMinutes) * 60;
         FLastTickTime := Now;
-        ApplyCurrentImageWithOverlay;
+        ApplyWallpaperWithTransition(PrevImg);
         ScheduleNextTick;
       end;
     finally
@@ -1161,12 +1280,12 @@ begin
   SetAutoStartEnabled(FConfig.AutoStart, AutoMsg);
   FConfig.Save;
   FRemainingSeconds := Min(FRemainingSeconds, Max(1, FConfig.IntervalMinutes) * 60);
-  LblDetectedDE.Caption := 'Detected Environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
+  LblDetectedDE.Caption := 'Detected environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
   StartAsyncScan(False);
   ApplyCurrentImageWithOverlay;
   ScheduleNextTick;
   if AutoMsg <> '' then LogMsg(AutoMsg);
-  LogMsg('Preferences saved in ' + FConfig.GetConfigFilePath);
+  LogMsg('Preferences saved to ' + FConfig.GetConfigFilePath);
 end;
 
 function TMainForm.ExtractWallHavenId(const FilePath: string; out WhId: string): Boolean;
@@ -1213,13 +1332,13 @@ begin
   BtnOpenWallHavenPage.Enabled := HasId;
   if HasId then
   begin
-    MnuOpenWallHavenPage.Caption := Format('Show Info on WallHaven.cc (%s)', [WhId]);
-    BtnOpenWallHavenPage.Caption := Format('Info WallHaven (%s)', [WhId]);
+    MnuOpenWallHavenPage.Caption := Format('Open Info on WallHaven.cc (%s)', [WhId]);
+    BtnOpenWallHavenPage.Caption := Format('WallHaven Info (%s)', [WhId]);
   end
   else
   begin
-    MnuOpenWallHavenPage.Caption := 'Show Info su WallHaven.cc';
-    BtnOpenWallHavenPage.Caption := 'Info WallHaven.cc';
+    MnuOpenWallHavenPage.Caption := 'Open Info on WallHaven.cc';
+    BtnOpenWallHavenPage.Caption := 'WallHaven.cc Info';
   end;
 end;
 
@@ -1229,21 +1348,21 @@ var
 begin
   if Trim(FCurrentSourceImage) = '' then
   begin
-    LogMsg('No active background: no valid ID.');
+    LogMsg('No active wallpaper at the moment: cannot determine WallHaven ID.');
     Exit;
   end;
 
   if not ExtractWallHavenId(FCurrentSourceImage, WhId) then
   begin
-    LogMsg('Active background is not from WallHaven.cc or it has been renamed: ' + ExtractFileName(FCurrentSourceImage));
+    LogMsg('Active wallpaper is not from WallHaven.cc: ' + ExtractFileName(FCurrentSourceImage));
     Exit;
   end;
 
   Url := 'https://wallhaven.cc/w/' + WhId;
   if OpenURL(Url) then
-    LogMsg('Opening info page on WallHaven.cc: ' + Url)
+    LogMsg('Opening WallHaven.cc info page: ' + Url)
   else
-    LogMsg('Can''t start the browser for: ' + Url);
+    LogMsg('Failed to launch browser to open: ' + Url);
 end;
 
 procedure TMainForm.MnuOpenWallHavenPageClick(Sender: TObject);
@@ -1279,7 +1398,7 @@ begin
   if (Length(Args) = 0) and FromOtherInstance then
   begin
     MnuShowPrefsClick(nil);
-    LogMsg('Second instance detected (TUniqueInstance): Bring windows to front.');
+    LogMsg('Second instance detected (TUniqueInstance): window brought to front.');
     Exit;
   end;
 
@@ -1288,12 +1407,12 @@ begin
     Arg := LowerCase(Trim(Args[I]));
     if (Arg = '--next') or (Arg = '-n') then
     begin
-      LogMsg('CLI Command: ' + Arg);
+      LogMsg('CLI command: ' + Arg);
       AdvanceWallpaper(1);
     end
     else if (Arg = '--previous') or (Arg = '--prev') or (Arg = '-p') then
     begin
-      LogMsg('CLI Command: ' + Arg);
+      LogMsg('CLI command: ' + Arg);
       AdvanceWallpaper(-1);
     end
     else if Arg = '--pause' then
@@ -1304,7 +1423,7 @@ begin
       SetPausedState(not FPaused)
     else if (Arg = '--apply') or (Arg = '--refresh') then
     begin
-      LogMsg('CLI Command: ' + Arg);
+      LogMsg('CLI command: ' + Arg);
       ApplyCurrentImageWithOverlay;
     end
     else if Arg = '--fetch' then
@@ -1312,7 +1431,7 @@ begin
     else if (Arg = '--info') or (Arg = '--wallhaven-info') or
             (Arg = '--open-wallhaven') or (Arg = '-i') then
     begin
-      LogMsg('CLI Command: ' + Arg);
+      LogMsg('CLI command: ' + Arg);
       OpenCurrentWallHavenPage;
     end
     else if Arg = '--show' then
@@ -1326,7 +1445,7 @@ begin
     else if (Arg = '--quit') or (Arg = '--exit') then
       MnuExitClick(nil)
     else if Arg <> '' then
-      LogMsg('CLI parameter ignored: ' + Args[I]);
+      LogMsg('Ignored CLI argument: ' + Args[I]);
   end;
 end;
 

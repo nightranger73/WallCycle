@@ -5,10 +5,10 @@ unit uWallpaperBackend;
 interface
 
 uses
-  Classes, SysUtils, Process, FileUtil,
   {$IFDEF WINDOWS}
   Windows, Registry,
   {$ENDIF}
+  Classes, SysUtils, Math, Process, FileUtil,
   uConfig;
 
 type
@@ -20,8 +20,11 @@ type
   end;
 
 function DetectDesktopEnvironment(Mode: TLinuxBackendMode): string;
+function BackendHasNativeTransition(Mode: TLinuxBackendMode): Boolean;
+function RecommendedSoftwareTransitionSteps(Mode: TLinuxBackendMode): Integer;
 function ApplySystemWallpaper(const ImagePath: string;
-  Mode: TLinuxBackendMode): TBackendResult;
+  Mode: TLinuxBackendMode; Transition: TWallpaperTransition = wtFade;
+  TransitionMs: Integer = 600): TBackendResult;
 function IsAutoStartEnabled: Boolean;
 function SetAutoStartEnabled(Enabled: Boolean; out Msg: string): Boolean;
 
@@ -137,6 +140,94 @@ begin
 end;
 
 {$IFDEF UNIX}
+function ResolveEffectiveLinuxMode(Mode: TLinuxBackendMode): TLinuxBackendMode;
+var
+  Detected: string;
+begin
+  if Mode <> lbAuto then Exit(Mode);
+  Detected := UpperCase(DetectDesktopEnvironment(lbAuto));
+  if Pos('HYPRLAND', Detected) > 0 then Result := lbHyprland
+  else if Pos('SWAY', Detected) > 0 then Result := lbSway
+  else if Pos('NIRI', Detected) > 0 then Result := lbNiri
+  else if Pos('UMBRIEL', Detected) > 0 then Result := lbUmbriel
+  else if Pos('GNOME', Detected) > 0 then Result := lbGnome
+  else if Pos('CINNAMON', Detected) > 0 then Result := lbCinnamon
+  else if Pos('MATE', Detected) > 0 then Result := lbMate
+  else if Pos('KDE', Detected) > 0 then Result := lbKDE
+  else if Pos('XFCE', Detected) > 0 then Result := lbXFCE
+  else if Pos('AWWW', Detected) > 0 then Result := lbAwww
+  else if Pos('SWWW', Detected) > 0 then Result := lbSwww
+  else if Pos('NITROGEN', Detected) > 0 then Result := lbNitrogen
+  else Result := lbFeh;
+end;
+
+function AwwwTransitionName(T: TWallpaperTransition): string;
+begin
+  case T of
+    wtNone: Result := 'none';
+    wtFade: Result := 'fade';
+    wtWipe: Result := 'wipe';
+    wtLeft: Result := 'left';
+    wtRight: Result := 'right';
+    wtCenter: Result := 'center';
+    wtRandom: Result := 'any';
+  else
+    Result := 'fade';
+  end;
+end;
+
+function FormatTransitionSec(Ms: Integer): string;
+var
+  FS: TFormatSettings;
+begin
+  FS := DefaultFormatSettings;
+  FS.DecimalSeparator := '.';
+  Result := FormatFloat('0.00', EnsureRange(Ms, 200, 3000) / 1000.0, FS);
+end;
+{$ENDIF}
+
+function BackendHasNativeTransition(Mode: TLinuxBackendMode): Boolean;
+{$IFDEF UNIX}
+var
+  Eff: TLinuxBackendMode;
+  OutStr: string;
+{$ENDIF}
+begin
+  {$IFDEF WINDOWS}
+  Exit(False);
+  {$ENDIF}
+  {$IFDEF UNIX}
+  Eff := ResolveEffectiveLinuxMode(Mode);
+  if Eff in [lbNiri, lbUmbriel, lbAwww, lbSwww] then
+    Exit(True);
+  if Eff = lbHyprland then
+  begin
+    if (FindExe('awww') <> '') and ExecCmd(FindExe('awww'), ['query'], OutStr) then Exit(True);
+    if (FindExe('swww') <> '') and ExecCmd(FindExe('swww'), ['query'], OutStr) then Exit(True);
+  end;
+  Result := False;
+  {$ENDIF}
+end;
+
+function RecommendedSoftwareTransitionSteps(Mode: TLinuxBackendMode): Integer;
+{$IFDEF UNIX}
+var
+  Eff: TLinuxBackendMode;
+{$ENDIF}
+begin
+  {$IFDEF WINDOWS}
+  Exit(6);
+  {$ENDIF}
+  {$IFDEF UNIX}
+  Eff := ResolveEffectiveLinuxMode(Mode);
+  if Eff in [lbFeh, lbNitrogen] then
+    Result := 6
+  else
+    Result := 4;
+  {$ENDIF}
+end;
+
+{$IFDEF UNIX}
 function ApplyKDE(const ImagePath: string; out CmdLog, Msg: string): Boolean;
 var
   QDBus, Script, OutStr: string;
@@ -180,7 +271,7 @@ begin
   if Xfconf = '' then
   begin
     CmdLog := 'xfconf-query';
-    Msg := 'xfconf-query non trovato nel PATH';
+    Msg := 'xfconf-query not found in PATH';
     Exit(False);
   end;
 
@@ -204,18 +295,22 @@ begin
       end;
     end;
     if Result then
-      Msg := 'All XFCE monitors updated'
+      Msg := 'Updated all XFCE monitors'
     else
-      Msg := 'No property /last-image found in xfce4-desktop';
+      Msg := 'No /last-image property found in xfce4-desktop';
   finally
     Props.Free;
   end;
 end;
 
-function ApplyAwww(const ImagePath: string; out CmdLog, Msg: string): Boolean;
+function ApplyAwww(const ImagePath: string; Transition: TWallpaperTransition;
+  TransitionMs: Integer; out CmdLog, Msg: string): Boolean;
 var
-  Awww, Swww, OutStr: string;
+  Awww, Swww, OutStr, TName, TDur: string;
 begin
+  TName := AwwwTransitionName(Transition);
+  TDur := FormatTransitionSec(TransitionMs);
+
   Awww := FindExe('awww');
   if Awww <> '' then
   begin
@@ -229,8 +324,16 @@ begin
       end;
     end;
 
-    CmdLog := 'awww img ' + ImagePath + ' --transition-type fade --transition-duration 0.4';
-    Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', 'fade', '--transition-duration', '0.4'], OutStr);
+    if Transition = wtNone then
+    begin
+      CmdLog := 'awww img ' + ImagePath + ' --transition-type none';
+      Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', 'none'], OutStr);
+    end
+    else
+    begin
+      CmdLog := Format('awww img %s --transition-type %s --transition-duration %s', [ImagePath, TName, TDur]);
+      Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', TName, '--transition-duration', TDur], OutStr);
+    end;
     Msg := OutStr;
     Exit;
   end;
@@ -239,8 +342,16 @@ begin
   Swww := FindExe('swww');
   if Swww <> '' then
   begin
-    CmdLog := 'swww img ' + ImagePath + ' --transition-type fade --transition-duration 0.4';
-    Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', 'fade', '--transition-duration', '0.4'], OutStr);
+    if Transition = wtNone then
+    begin
+      CmdLog := 'swww img ' + ImagePath + ' --transition-type none';
+      Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', 'none'], OutStr);
+    end
+    else
+    begin
+      CmdLog := Format('swww img %s --transition-type %s --transition-duration %s', [ImagePath, TName, TDur]);
+      Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', TName, '--transition-duration', TDur], OutStr);
+    end;
     Msg := OutStr;
     Exit;
   end;
@@ -250,16 +361,28 @@ begin
   Result := False;
 end;
 
-function ApplyHyprland(const ImagePath: string; out CmdLog, Msg: string): Boolean;
+function ApplyHyprland(const ImagePath: string; Transition: TWallpaperTransition;
+  TransitionMs: Integer; out CmdLog, Msg: string): Boolean;
 var
-  HyprCtl, Awww, Swww, OutStr: string;
+  HyprCtl, Awww, Swww, OutStr, TName, TDur: string;
 begin
+  TName := AwwwTransitionName(Transition);
+  TDur := FormatTransitionSec(TransitionMs);
+
   // Prefer awww or swww if daemon is active, else hyprctl hyprpaper
   Awww := FindExe('awww');
   if (Awww <> '') and ExecCmd(Awww, ['query'], OutStr) then
   begin
-    CmdLog := 'awww img ' + ImagePath + ' --transition-type fade';
-    Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', 'fade', '--transition-duration', '0.4'], OutStr);
+    if Transition = wtNone then
+    begin
+      CmdLog := 'awww img ' + ImagePath + ' --transition-type none';
+      Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', 'none'], OutStr);
+    end
+    else
+    begin
+      CmdLog := Format('awww img %s --transition-type %s --transition-duration %s', [ImagePath, TName, TDur]);
+      Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', TName, '--transition-duration', TDur], OutStr);
+    end;
     Msg := OutStr;
     Exit;
   end;
@@ -267,8 +390,16 @@ begin
   Swww := FindExe('swww');
   if (Swww <> '') and ExecCmd(Swww, ['query'], OutStr) then
   begin
-    CmdLog := 'swww img ' + ImagePath + ' --transition-type fade';
-    Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', 'fade', '--transition-duration', '0.4'], OutStr);
+    if Transition = wtNone then
+    begin
+      CmdLog := 'swww img ' + ImagePath + ' --transition-type none';
+      Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', 'none'], OutStr);
+    end
+    else
+    begin
+      CmdLog := Format('swww img %s --transition-type %s --transition-duration %s', [ImagePath, TName, TDur]);
+      Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', TName, '--transition-duration', TDur], OutStr);
+    end;
     Msg := OutStr;
     Exit;
   end;
@@ -277,7 +408,7 @@ begin
   if HyprCtl = '' then
   begin
     CmdLog := 'hyprctl';
-    Msg := 'hyprctl, awww e swww not found';
+    Msg := 'hyprctl, awww and swww not found';
     Exit(False);
   end;
 
@@ -290,7 +421,8 @@ end;
 {$ENDIF}
 
 function ApplySystemWallpaper(const ImagePath: string;
-  Mode: TLinuxBackendMode): TBackendResult;
+  Mode: TLinuxBackendMode; Transition: TWallpaperTransition;
+  TransitionMs: Integer): TBackendResult;
 {$IFDEF WINDOWS}
 var
   Reg: TRegistry;
@@ -309,7 +441,7 @@ begin
 
   if not FileExists(ImagePath) then
   begin
-    Result.Message := 'Image not found: ' + ImagePath;
+    Result.Message := 'Image file not found: ' + ImagePath;
     Exit;
   end;
 
@@ -333,11 +465,11 @@ begin
     SPIF_UPDATEINIFILE or SPIF_SENDCHANGE) then
   begin
     Result.Success := True;
-    Result.Message := 'Windows wallper succesfully updated';
+    Result.Message := 'Windows wallpaper updated successfully';
   end
   else
   begin
-    Result.Message := 'Win32 Error: ' + SysErrorMessage(GetLastOSError);
+    Result.Message := 'Win32 error: ' + SysErrorMessage(GetLastOSError);
   end;
   {$ENDIF}
 
@@ -390,7 +522,7 @@ begin
     lbXFCE:
       Result.Success := ApplyXFCE(ImagePath, Result.CommandExecuted, Result.Message);
     lbHyprland:
-      Result.Success := ApplyHyprland(ImagePath, Result.CommandExecuted, Result.Message);
+      Result.Success := ApplyHyprland(ImagePath, Transition, TransitionMs, Result.CommandExecuted, Result.Message);
     lbSway:
       begin
         Exe := FindExe('swaymsg');
@@ -399,12 +531,22 @@ begin
         Result.Message := OutStr;
       end;
     lbNiri, lbUmbriel, lbAwww:
-      Result.Success := ApplyAwww(ImagePath, Result.CommandExecuted, Result.Message);
+      Result.Success := ApplyAwww(ImagePath, Transition, TransitionMs, Result.CommandExecuted, Result.Message);
     lbSwww:
       begin
         Exe := FindExe('swww');
-        Result.CommandExecuted := 'swww img ' + ImagePath + ' --transition-type fade';
-        Result.Success := ExecCmd(Exe, ['img', ImagePath, '--transition-type', 'fade', '--transition-duration', '0.4'], OutStr);
+        if Transition = wtNone then
+        begin
+          Result.CommandExecuted := 'swww img ' + ImagePath + ' --transition-type none';
+          Result.Success := ExecCmd(Exe, ['img', ImagePath, '--transition-type', 'none'], OutStr);
+        end
+        else
+        begin
+          Result.CommandExecuted := Format('swww img %s --transition-type %s --transition-duration %s',
+            [ImagePath, AwwwTransitionName(Transition), FormatTransitionSec(TransitionMs)]);
+          Result.Success := ExecCmd(Exe, ['img', ImagePath, '--transition-type', AwwwTransitionName(Transition),
+            '--transition-duration', FormatTransitionSec(TransitionMs)], OutStr);
+        end;
         Result.Message := OutStr;
       end;
     lbNitrogen:
@@ -479,13 +621,13 @@ begin
       begin
         ExeCmdLine := '"' + ParamStr(0) + '"';
         Reg.WriteString('WallCycle', ExeCmdLine);
-        Msg := 'Automatic startup added in Windows Registry (HKCU\...\Run\WallCycle)';
+        Msg := 'Autostart added to Windows Registry (HKCU\...\Run\WallCycle)';
       end
       else
       begin
         if Reg.ValueExists('WallCycle') then
           Reg.DeleteValue('WallCycle');
-        Msg := 'Automatic startup removed from Windows Registry';
+        Msg := 'Autostart removed from Windows Registry';
       end;
       Reg.CloseKey;
       Result := True;
@@ -496,7 +638,7 @@ begin
     on E: Exception do
     begin
       Result := False;
-      Msg := 'Windows Registry Error: ' + E.Message;
+      Msg := 'Windows Registry error: ' + E.Message;
     end;
   end;
   Reg.Free;
@@ -532,13 +674,13 @@ begin
       finally
         SL.Free;
       end;
-      Msg := 'Automatic startup enabled: ' + DesktopPath;
+      Msg := 'Autostart enabled: ' + DesktopPath;
       Result := True;
     except
       on E: Exception do
       begin
         Result := False;
-        Msg := 'Error setting automatic startup XDG: ' + E.Message;
+        Msg := 'Error writing XDG autostart: ' + E.Message;
       end;
     end;
   end
@@ -548,7 +690,7 @@ begin
     begin
       if DeleteFile(DesktopPath) then
       begin
-        Msg := 'Automatic startup disabled: ' + DesktopPath;
+        Msg := 'Autostart removed: ' + DesktopPath;
         Result := True;
       end
       else
@@ -559,7 +701,7 @@ begin
     end
     else
     begin
-      Msg := 'Automatic startup already disabled';
+      Msg := 'Autostart already disabled';
       Result := True;
     end;
   end;

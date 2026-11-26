@@ -2,7 +2,7 @@
 Type=Application
 Version=1.0
 Name=WallCycle
-Comment=Desktop wallpaper slideshow
+Comment=Slideshow sfondi desktop con overlay Data e Ora e filtro luminosità
 Exec=/usr/bin/wallcycle
 Icon=preferences-desktop-wallpaper
 Terminal=false

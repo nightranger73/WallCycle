@@ -12,7 +12,6 @@
       <Unit>
         <Filename Value="uConfig.pas"/>
         <IsPartOfProject Value="True"/>
-        <IsVisibleTab Value="True"/>
         <EditorIndex Value="1"/>
         <TopLine Value="236"/>
         <CursorPos X="26" Y="263"/>
@@ -50,9 +49,9 @@
       <Unit>
         <Filename Value="uWallHavenClient.pas"/>
         <IsPartOfProject Value="True"/>
+        <IsVisibleTab Value="True"/>
         <EditorIndex Value="2"/>
-        <TopLine Value="35"/>
-        <CursorPos X="19" Y="52"/>
+        <CursorPos X="34" Y="9"/>
         <UsageCount Value="21"/>
         <Loaded Value="True"/>
       </Unit>
@@ -68,7 +67,7 @@
         <LoadedDesigner Value="True"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="26">
+    <JumpHistory HistoryIndex="29">
       <Position>
         <Filename Value="uMainForm.pas"/>
         <Caret Line="4"/>
@@ -159,10 +158,6 @@
       </Position>
       <Position>
         <Filename Value="uWallHavenClient.pas"/>
-        <Caret Line="17" Column="16" TopLine="47"/>
-      </Position>
-      <Position>
-        <Filename Value="uWallHavenClient.pas"/>
         <Caret Line="52" Column="19" TopLine="46"/>
       </Position>
       <Position>
@@ -175,6 +170,22 @@
       <Position>
         <Filename Value="uConfig.pas"/>
         <Caret Line="81" Column="21" TopLine="55"/>
+      </Position>
+      <Position>
+        <Filename Value="uConfig.pas"/>
+        <Caret Line="263" Column="26" TopLine="236"/>
+      </Position>
+      <Position>
+        <Filename Value="uWallHavenClient.pas"/>
+        <Caret Line="318" Column="15" TopLine="302"/>
+      </Position>
+      <Position>
+        <Filename Value="uWallHavenClient.pas"/>
+        <Caret Line="9" Column="34"/>
+      </Position>
+      <Position>
+        <Filename Value="uWallHavenClient.pas"/>
+        <Caret Line="322" Column="31" TopLine="302"/>
       </Position>
     </JumpHistory>
     <RunParams>

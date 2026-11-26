@@ -5,8 +5,8 @@ unit uWallHavenClient;
 interface
 
 uses
-  Classes, SysUtils, Process, FileUtil, fpjson, jsonparser, Math,
-  uConfig, uLuminanceFilter;
+  Classes, SysUtils, Process, FileUtil, fpjson, jsonparser,
+  uConfig, uLuminanceFilter, Math;
 
 type
   TWallHavenFetchStats = record
@@ -53,7 +53,7 @@ procedure PruneOldCacheFiles(const CacheDir: string; MaxFiles: Integer);
 var
   SR: TSearchRec;
   Files: TStringList;
-  I: Integer;
+  I, J: Integer;
 begin
   if MaxFiles <= 0 then Exit;
   Files := TStringList.Create;
@@ -70,8 +70,9 @@ begin
     if Files.Count > MaxFiles then
     begin
       for I := 0 to Files.Count - 2 do
-        if PtrInt(Files.Objects[I]) > PtrInt(Files.Objects[I + 1]) then
-          Files.Exchange(I, I + 1);
+        for J := I + 1 to Files.Count - 1 do
+          if PtrInt(Files.Objects[I]) > PtrInt(Files.Objects[J]) then
+            Files.Exchange(I, J);
       for I := 0 to (Files.Count - MaxFiles) - 1 do
         DeleteFile(Files[I]);
     end;
@@ -148,10 +149,10 @@ begin
           6: ErrMsg := 'DNS error (unable to resolve wallhaven.cc)';
           7: ErrMsg := 'Connection refused or network unreachable';
           22: ErrMsg := 'HTTP server error (rate limit 429 or access denied 401/403)';
-          28: ErrMsg := 'Connection Timeout';
-          35, 60: ErrMsg := 'SSL/TLS handshake error';
+          28: ErrMsg := 'Connection timed out';
+          35, 60: ErrMsg := 'System SSL/TLS handshake error';
         else
-          ErrMsg := Format('%s terminated with code %d', [ExtractFileName(Exe), P.ExitStatus]);
+          ErrMsg := Format('%s exited with code %d', [ExtractFileName(Exe), P.ExitStatus]);
         end;
       end;
     except
@@ -209,7 +210,7 @@ begin
   end;
 
   Result := False;
-  ErrMsg := 'No curl or wget found in PATH';
+  ErrMsg := 'Neither curl nor wget found in PATH to access WallHaven';
 end;
 
 function HttpDownloadFile(const Url, DestPath, ApiKey: string; out ErrMsg: string): Boolean;
@@ -260,7 +261,7 @@ begin
   end;
 
   Result := False;
-  ErrMsg := 'No curl or wget found in PATH';
+  ErrMsg := 'Neither curl nor wget found in PATH';
 end;
 
 function BuildSearchUrl(Config: TWallCycleConfig; Source: TWallpaperSource;
@@ -332,7 +333,7 @@ begin
       if not HttpGetText(Url, Config.WallHavenApiKey, JsonText, HttpErr) then
       begin
         if (PageNum = 1) and (Result.DownloadedCount = 0) then
-          Result.LastError := 'HTTP Error WallHaven: ' + HttpErr;
+          Result.LastError := 'WallHaven HTTP error: ' + HttpErr;
         Break;
       end;
 
@@ -342,7 +343,7 @@ begin
         on E: Exception do
         begin
           if (PageNum = 1) and (Result.DownloadedCount = 0) then
-            Result.LastError := 'JSON Response invalid: ' + E.Message;
+            Result.LastError := 'Invalid JSON response: ' + E.Message;
           Break;
         end;
       end;
@@ -421,7 +422,7 @@ begin
           end;
           if DetectImageFormat(LocalPath) = ifUnknown then
           begin
-            LastDlErr := 'Downloaded file in not a valid immage format';
+            LastDlErr := 'Downloaded file not recognized as a valid image';
             if FileExists(LocalPath) then DeleteFile(LocalPath);
             Continue;
           end;
@@ -463,9 +464,9 @@ begin
   if (Result.DownloadedCount = 0) and (Result.LastError = '') then
   begin
     if Result.CandidatesExamined = 0 then
-      Result.LastError := Format('WallHaven: 0 results found for "%s" (Try with a more generic query or check Purity/API Key).', [Source.Target])
+      Result.LastError := Format('WallHaven: 0 results found for "%s" (try a broader query or check Purity/API Key).', [Source.Target])
     else if LastDlErr <> '' then
-      Result.LastError := 'Error downloading WallHaven image: ' + LastDlErr;
+      Result.LastError := 'WallHaven image download error: ' + LastDlErr;
   end;
 end;
 

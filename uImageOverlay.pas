@@ -5,9 +5,21 @@ unit uImageOverlay;
 interface
 
 uses
-  Classes, SysUtils, Math, Forms, Graphics, GraphType, IntfGraphics, FPImage,
-  FPCanvas, FPImgCanv, FPWritePNG, Types, zstream,
+  {$IFDEF WINDOWS}
+  Windows,
+  {$ENDIF}
+  Classes, SysUtils, Math, Graphics, Forms, IntfGraphics, FPImage, FPWritePNG, Types, zstream,
   uConfig, uLuminanceFilter;
+
+function CreateRenderedWallpaperBitmap(const SourcePath: string;
+  Config: TWallCycleConfig): TBitmap;
+
+function RenderWallpaperFromBitmap(Bmp: TBitmap; const OutputDir: string;
+  UseBMP: Boolean; var ToggleSlot: Integer; out OutputPath: string): Boolean;
+
+function RenderTransitionStep(PrevBmp, NextBmp: TBitmap;
+  Transition: TWallpaperTransition; Progress: Double; const OutputDir: string;
+  UseBMP: Boolean; var ToggleSlot: Integer; out OutputPath: string): Boolean;
 
 function RenderWallpaperWithClock(const SourcePath, OutputDir: string;
   Config: TWallCycleConfig; var ToggleSlot: Integer; out OutputPath: string): Boolean;
@@ -17,70 +29,7 @@ procedure EnsureLocalizedDateNames;
 procedure DrawOutlinedText(Canvas: TCanvas; X, Y: Integer; const Text: string;
   OutlineWidth: Integer; TextColor, OutlineColor: TColor);
 
-function GetTargetScreenResolution: TSize;
-
-function ComputeCoverCropRect(SrcW, SrcH, DstW, DstH: Integer): TRect;
-
 implementation
-
-function GetTargetScreenResolution: TSize;
-var
-  Mon: TMonitor;
-  Scale: Double;
-begin
-  Result.cx := 1920;
-  Result.cy := 1080;
-  if Screen = nil then Exit;
-
-  Mon := Screen.PrimaryMonitor;
-  if Mon <> nil then
-  begin
-    Result.cx := Mon.Width;
-    Result.cy := Mon.Height;
-    if Mon.PixelsPerInch > 96 then
-    begin
-      Scale := Mon.PixelsPerInch / 96.0;
-      Result.cx := Round(Result.cx * Scale);
-      Result.cy := Round(Result.cy * Scale);
-    end;
-  end
-  else if (Screen.Width > 0) and (Screen.Height > 0) then
-  begin
-    Result.cx := Screen.Width;
-    Result.cy := Screen.Height;
-  end;
-end;
-
-function ComputeCoverCropRect(SrcW, SrcH, DstW, DstH: Integer): TRect;
-var
-  SrcAspect, DstAspect: Double;
-  CropW, CropH, OffsetX, OffsetY: Integer;
-begin
-  if (SrcW <= 0) or (SrcH <= 0) or (DstW <= 0) or (DstH <= 0) then
-    Exit(Rect(0, 0, Max(1, SrcW), Max(1, SrcH)));
-
-  SrcAspect := SrcW / SrcH;
-  DstAspect := DstW / DstH;
-
-  if SrcAspect > DstAspect then
-  begin
-    // Immagine più larga dello schermo: taglia sinistra e destra
-    CropH := SrcH;
-    CropW := Round(SrcH * DstAspect);
-    OffsetX := (SrcW - CropW) div 2;
-    OffsetY := 0;
-  end
-  else
-  begin
-    // Immagine più alta dello schermo: taglia sopra e sotto
-    CropW := SrcW;
-    CropH := Round(SrcW / DstAspect);
-    OffsetX := 0;
-    OffsetY := (SrcH - CropH) div 2;
-  end;
-
-  Result := Rect(OffsetX, OffsetY, OffsetX + CropW, OffsetY + CropH);
-end;
 
 procedure BlendRoundedScrim(Bmp: TBitmap; const Box: TRect; Radius: Integer;
   Alpha: Byte);
@@ -291,105 +240,115 @@ begin
   end;
 end;
 
-procedure RenderCoverToBitmap(Pic: TPicture; Bmp: TBitmap; TargetW, TargetH: Integer);
-var
-  SrcIntf, CropIntf, DstIntf: TLazIntfImage;
-  FPCanv: TFPImageCanvas;
-  CropRect: TRect;
-  CropW, CropH, X, Y: Integer;
+procedure GetTargetScreenSize(out TargetW, TargetH: Integer);
 begin
-  Bmp.SetSize(TargetW, TargetH);
-
-  // Se l'immagine ha già esattamente la risoluzione dello schermo, copia diretta
-  if (Pic.Width = TargetW) and (Pic.Height = TargetH) then
+  TargetW := 0;
+  TargetH := 0;
+  if Assigned(Screen) then
   begin
-    Bmp.Canvas.Draw(0, 0, Pic.Graphic);
+    if Assigned(Screen.PrimaryMonitor) then
+    begin
+      TargetW := Screen.PrimaryMonitor.Width;
+      TargetH := Screen.PrimaryMonitor.Height;
+    end;
+    if (TargetW <= 0) or (TargetH <= 0) then
+    begin
+      TargetW := Screen.Width;
+      TargetH := Screen.Height;
+    end;
+  end;
+  if (TargetW <= 0) or (TargetH <= 0) then
+  begin
+    TargetW := 1920;
+    TargetH := 1080;
+  end;
+  TargetW := Max(640, TargetW);
+  TargetH := Max(480, TargetH);
+end;
+
+function CreateScreenFittedBitmap(Pic: TPicture; TargetPF: TPixelFormat): TBitmap;
+var
+  SrcW, SrcH, TargetW, TargetH: Integer;
+  CropX, CropY, CropW, CropH: Integer;
+  SrcAspect, TargetAspect: Double;
+  SrcRect, DestRect: TRect;
+  SrcBmp: TBitmap;
+begin
+  SrcW := Max(1, Pic.Width);
+  SrcH := Max(1, Pic.Height);
+  GetTargetScreenSize(TargetW, TargetH);
+
+  Result := TBitmap.Create;
+  Result.PixelFormat := TargetPF;
+  Result.SetSize(TargetW, TargetH);
+  Result.Canvas.Brush.Color := clBlack;
+  Result.Canvas.FillRect(0, 0, TargetW, TargetH);
+
+  if (SrcW = TargetW) and (SrcH = TargetH) then
+  begin
+    Result.Canvas.Draw(0, 0, Pic.Graphic);
     Exit;
   end;
 
-  CropRect := ComputeCoverCropRect(Pic.Width, Pic.Height, TargetW, TargetH);
-  CropW := Max(1, CropRect.Right - CropRect.Left);
-  CropH := Max(1, CropRect.Bottom - CropRect.Top);
+  SrcAspect := SrcW / SrcH;
+  TargetAspect := TargetW / TargetH;
+  if SrcAspect > TargetAspect then
+  begin
+    CropH := SrcH;
+    CropW := EnsureRange(Round(SrcH * TargetAspect), 1, SrcW);
+    CropX := (SrcW - CropW) div 2;
+    CropY := 0;
+  end
+  else
+  begin
+    CropW := SrcW;
+    CropH := EnsureRange(Round(SrcW / TargetAspect), 1, SrcH);
+    CropX := 0;
+    CropY := (SrcH - CropH) div 2;
+  end;
 
-  SrcIntf := Pic.Bitmap.CreateIntfImage;
-  CropIntf := TLazIntfImage.Create(CropW, CropH, [riqfRGB, riqfAlpha]);
-  DstIntf := TLazIntfImage.Create(TargetW, TargetH, [riqfRGB, riqfAlpha]);
+  SrcRect := Rect(CropX, CropY, CropX + CropW, CropY + CropH);
+  DestRect := Rect(0, 0, TargetW, TargetH);
+
+  SrcBmp := TBitmap.Create;
   try
-    // Estrae la porzione centrale con l'aspect ratio corretto
-    for Y := 0 to CropH - 1 do
-      for X := 0 to CropW - 1 do
-        CropIntf.Colors[X, Y] := SrcIntf.Colors[CropRect.Left + X, CropRect.Top + Y];
+    SrcBmp.PixelFormat := TargetPF;
+    SrcBmp.SetSize(SrcW, SrcH);
+    SrcBmp.Canvas.Brush.Color := clBlack;
+    SrcBmp.Canvas.FillRect(0, 0, SrcW, SrcH);
+    SrcBmp.Canvas.Draw(0, 0, Pic.Graphic);
 
-    // Ridimensiona con interpolazione di alta qualità (Mitchell)
-    FPCanv := TFPImageCanvas.Create(DstIntf);
-    try
-      FPCanv.StretchDraw(0, 0, TargetW, TargetH, CropIntf);
-    finally
-      FPCanv.Free;
-    end;
-
-    Bmp.LoadFromIntfImage(DstIntf);
+    {$IFDEF WINDOWS}
+    SetStretchBltMode(Result.Canvas.Handle, HALFTONE);
+    SetBrushOrgEx(Result.Canvas.Handle, 0, 0, nil);
+    {$ENDIF}
+    Result.Canvas.CopyRect(DestRect, SrcBmp.Canvas, SrcRect);
   finally
-    DstIntf.Free;
-    CropIntf.Free;
-    SrcIntf.Free;
+    SrcBmp.Free;
   end;
 end;
 
-function RenderWallpaperWithClock(const SourcePath, OutputDir: string;
-  Config: TWallCycleConfig; var ToggleSlot: Integer; out OutputPath: string): Boolean;
+function CreateRenderedWallpaperBitmap(const SourcePath: string;
+  Config: TWallCycleConfig): TBitmap;
 var
   Pic: TPicture;
-  Bmp: TBitmap;
   TimeStr, DateStr, TimeFmt: string;
   NowDT: TDateTime;
-  TimeSize, DateSize, TargetRes: TSize;
+  TimeSize, DateSize: TSize;
   PadX, PadY, GapY, BoxW, BoxH, BoxX, BoxY, Margin, RefSize: Integer;
   TimeOutlineW, DateOutlineW, TimeX, DateX: Integer;
   AlignRight, TransparentBg: Boolean;
   BoxRect: TRect;
-  PrevFile: string;
 begin
-  Result := False;
-  OutputPath := '';
+  Result := nil;
   if not FileExists(SourcePath) then Exit;
 
-  ForceDirectories(OutputDir);
-  ToggleSlot := (ToggleSlot + 1) mod 2;
-  OutputPath := IncludeTrailingPathDelimiter(OutputDir) +
-    Format('wallcycle_active_%d.png', [ToggleSlot]);
-  PrevFile := IncludeTrailingPathDelimiter(OutputDir) +
-    Format('wallcycle_active_%d.png', [(ToggleSlot + 1) mod 2]);
-
-  if not Config.OverlayEnabled then
-  begin
-    Pic := TPicture.Create;
-    Bmp := TBitmap.Create;
-    try
-      if not LoadPictureSafe(Pic, SourcePath) then Exit(False);
-      Bmp.PixelFormat := pf24bit;
-      TargetRes := GetTargetScreenResolution;
-      RenderCoverToBitmap(Pic, Bmp, TargetRes.cx, TargetRes.cy);
-      if SaveBitmapFastPNG(Bmp, OutputPath) then
-      begin
-        if FileExists(PrevFile) then DeleteFile(PrevFile);
-        Exit(True);
-      end;
-      Exit(False);
-    finally
-      Bmp.Free;
-      Pic.Free;
-    end;
-  end;
-
   Pic := TPicture.Create;
-  Bmp := TBitmap.Create;
   try
-    if not LoadPictureSafe(Pic, SourcePath) then Exit(False);
+    if not LoadPictureSafe(Pic, SourcePath) then Exit;
 
-    Bmp.PixelFormat := pf32bit;
-    TargetRes := GetTargetScreenResolution;
-    RenderCoverToBitmap(Pic, Bmp, TargetRes.cx, TargetRes.cy);
+    Result := CreateScreenFittedBitmap(Pic, pf24bit);
+    if not Config.OverlayEnabled then Exit;
 
     EnsureLocalizedDateNames;
     NowDT := Now;
@@ -404,17 +363,17 @@ begin
     DateOutlineW := Max(1, Round(Config.OverlayDateFontSize * 0.045));
 
     // Measure Time dimensions with Time font & size
-    Bmp.Canvas.Font.Name := Config.OverlayTimeFontName;
-    Bmp.Canvas.Font.Quality := fqAntialiased;
-    Bmp.Canvas.Font.Size := Max(10, Config.OverlayTimeFontSize);
-    Bmp.Canvas.Font.Style := [fsBold];
-    TimeSize := Bmp.Canvas.TextExtent(TimeStr);
+    Result.Canvas.Font.Name := Config.OverlayTimeFontName;
+    Result.Canvas.Font.Quality := fqAntialiased;
+    Result.Canvas.Font.Size := Max(10, Config.OverlayTimeFontSize);
+    Result.Canvas.Font.Style := [fsBold];
+    TimeSize := Result.Canvas.TextExtent(TimeStr);
 
     // Measure Date dimensions with Date font & size
-    Bmp.Canvas.Font.Name := Config.OverlayDateFontName;
-    Bmp.Canvas.Font.Size := Max(8, Config.OverlayDateFontSize);
-    Bmp.Canvas.Font.Style := [];
-    DateSize := Bmp.Canvas.TextExtent(DateStr);
+    Result.Canvas.Font.Name := Config.OverlayDateFontName;
+    Result.Canvas.Font.Size := Max(8, Config.OverlayDateFontSize);
+    Result.Canvas.Font.Style := [];
+    DateSize := Result.Canvas.TextExtent(DateStr);
 
     RefSize := Max(Config.OverlayTimeFontSize, Config.OverlayDateFontSize);
     TransparentBg := Config.OverlayTransparentBg or (Config.OverlayBackdropOpacity = 0);
@@ -443,27 +402,27 @@ begin
         end;
       ocTopRight:
         begin
-          BoxX := Bmp.Width - BoxW - Margin;
+          BoxX := Result.Width - BoxW - Margin;
           BoxY := Margin;
         end;
       ocBottomLeft:
         begin
           BoxX := Margin;
-          BoxY := Bmp.Height - BoxH - Margin;
+          BoxY := Result.Height - BoxH - Margin;
         end;
       ocBottomRight:
         begin
-          BoxX := Bmp.Width - BoxW - Margin;
-          BoxY := Bmp.Height - BoxH - Margin;
+          BoxX := Result.Width - BoxW - Margin;
+          BoxY := Result.Height - BoxH - Margin;
         end;
     end;
 
-    BoxX := EnsureRange(BoxX, 8, Max(8, Bmp.Width - BoxW - 8));
-    BoxY := EnsureRange(BoxY, 8, Max(8, Bmp.Height - BoxH - 8));
+    BoxX := EnsureRange(BoxX, 8, Max(8, Result.Width - BoxW - 8));
+    BoxY := EnsureRange(BoxY, 8, Max(8, Result.Height - BoxH - 8));
     BoxRect := Rect(BoxX, BoxY, BoxX + BoxW, BoxY + BoxH);
 
     if not TransparentBg then
-      BlendRoundedScrim(Bmp, BoxRect, 14, Config.OverlayBackdropOpacity);
+      BlendRoundedScrim(Result, BoxRect, 14, Config.OverlayBackdropOpacity);
 
     // Align left when placed on left corners, right when placed on right corners
     AlignRight := Config.OverlayCorner in [ocTopRight, ocBottomRight];
@@ -479,11 +438,11 @@ begin
     end;
 
     // Draw Time in pure white with black outline
-    Bmp.Canvas.Font.Name := Config.OverlayTimeFontName;
-    Bmp.Canvas.Font.Size := Max(10, Config.OverlayTimeFontSize);
-    Bmp.Canvas.Font.Style := [fsBold];
+    Result.Canvas.Font.Name := Config.OverlayTimeFontName;
+    Result.Canvas.Font.Size := Max(10, Config.OverlayTimeFontSize);
+    Result.Canvas.Font.Style := [fsBold];
     DrawOutlinedText(
-      Bmp.Canvas,
+      Result.Canvas,
       TimeX,
       BoxY + PadY,
       TimeStr,
@@ -493,11 +452,11 @@ begin
     );
 
     // Draw Date below Time in pure white with black outline
-    Bmp.Canvas.Font.Name := Config.OverlayDateFontName;
-    Bmp.Canvas.Font.Size := Max(8, Config.OverlayDateFontSize);
-    Bmp.Canvas.Font.Style := [];
+    Result.Canvas.Font.Name := Config.OverlayDateFontName;
+    Result.Canvas.Font.Size := Max(8, Config.OverlayDateFontSize);
+    Result.Canvas.Font.Style := [];
     DrawOutlinedText(
-      Bmp.Canvas,
+      Result.Canvas,
       DateX,
       BoxY + PadY + TimeSize.cy + GapY,
       DateStr,
@@ -505,13 +464,186 @@ begin
       RGBToColor(255, 255, 255),
       RGBToColor(0, 0, 0)
     );
+  finally
+    Pic.Free;
+  end;
+end;
 
+function RenderWallpaperFromBitmap(Bmp: TBitmap; const OutputDir: string;
+  UseBMP: Boolean; var ToggleSlot: Integer; out OutputPath: string): Boolean;
+var
+  Dir, Ext, PrevPng, PrevBmp: string;
+  PrevSlot: Integer;
+begin
+  Result := False;
+  OutputPath := '';
+  if Bmp = nil then Exit;
+
+  Dir := IncludeTrailingPathDelimiter(OutputDir);
+  ForceDirectories(Dir);
+
+  PrevSlot := ToggleSlot;
+  ToggleSlot := (ToggleSlot + 1) mod 2;
+  if UseBMP then Ext := 'bmp' else Ext := 'png';
+
+  OutputPath := Dir + Format('wallcycle_active_%d.%s', [ToggleSlot, Ext]);
+  PrevPng := Dir + Format('wallcycle_active_%d.png', [PrevSlot]);
+  PrevBmp := Dir + Format('wallcycle_active_%d.bmp', [PrevSlot]);
+
+  if UseBMP then
+  begin
+    try
+      Bmp.SaveToFile(OutputPath);
+      Result := True;
+    except
+      Result := False;
+    end;
+  end
+  else
     Result := SaveBitmapFastPNG(Bmp, OutputPath);
-    if Result and FileExists(PrevFile) then
-      DeleteFile(PrevFile);
+
+  if Result then
+  begin
+    if (PrevPng <> OutputPath) and FileExists(PrevPng) then DeleteFile(PrevPng);
+    if (PrevBmp <> OutputPath) and FileExists(PrevBmp) then DeleteFile(PrevBmp);
+  end;
+end;
+
+procedure BlendBitmapsScanline(BmpA, BmpB, OutBmp: TBitmap; Progress: Double);
+var
+  IntfA, IntfB, IntfOut: TLazIntfImage;
+  W, H, Y, X, RowBytes, AlphaW, InvW: Integer;
+  PA, PB, POut: PByte;
+begin
+  W := OutBmp.Width;
+  H := OutBmp.Height;
+  if (BmpA.Width <> W) or (BmpA.Height <> H) or
+     (BmpB.Width <> W) or (BmpB.Height <> H) then
+  begin
+    OutBmp.Canvas.Draw(0, 0, BmpB);
+    Exit;
+  end;
+
+  AlphaW := EnsureRange(Round(Progress * 256.0), 0, 256);
+  InvW := 256 - AlphaW;
+
+  IntfA := BmpA.CreateIntfImage;
+  IntfB := BmpB.CreateIntfImage;
+  IntfOut := OutBmp.CreateIntfImage;
+  try
+    if (IntfA.DataDescription.BitsPerPixel = IntfB.DataDescription.BitsPerPixel) and
+       (IntfA.DataDescription.BitsPerPixel = IntfOut.DataDescription.BitsPerPixel) and
+       (IntfA.DataDescription.BitsPerPixel >= 24) then
+    begin
+      RowBytes := W * (IntfA.DataDescription.BitsPerPixel div 8);
+      for Y := 0 to H - 1 do
+      begin
+        PA := PByte(IntfA.GetDataLineStart(Y));
+        PB := PByte(IntfB.GetDataLineStart(Y));
+        POut := PByte(IntfOut.GetDataLineStart(Y));
+        if (PA = nil) or (PB = nil) or (POut = nil) then Break;
+        for X := 0 to RowBytes - 1 do
+        begin
+          POut^ := Byte((Integer(PA^) * InvW + Integer(PB^) * AlphaW) shr 8);
+          Inc(PA);
+          Inc(PB);
+          Inc(POut);
+        end;
+      end;
+      OutBmp.LoadFromIntfImage(IntfOut);
+    end
+    else
+      OutBmp.Canvas.Draw(0, 0, BmpB);
+  finally
+    IntfOut.Free;
+    IntfB.Free;
+    IntfA.Free;
+  end;
+end;
+
+function RenderTransitionStep(PrevBmp, NextBmp: TBitmap;
+  Transition: TWallpaperTransition; Progress: Double; const OutputDir: string;
+  UseBMP: Boolean; var ToggleSlot: Integer; out OutputPath: string): Boolean;
+var
+  OutBmp: TBitmap;
+  W, H, SplitX, CurW, CurH, X0, Y0: Integer;
+  R: TRect;
+begin
+  Result := False;
+  OutputPath := '';
+  if NextBmp = nil then Exit;
+
+  if (PrevBmp = nil) or (Transition = wtNone) or (Progress >= 0.999) then
+  begin
+    Result := RenderWallpaperFromBitmap(NextBmp, OutputDir, UseBMP, ToggleSlot, OutputPath);
+    Exit;
+  end;
+
+  W := NextBmp.Width;
+  H := NextBmp.Height;
+  OutBmp := TBitmap.Create;
+  try
+    OutBmp.PixelFormat := NextBmp.PixelFormat;
+    OutBmp.SetSize(W, H);
+
+    case Transition of
+      wtWipe:
+        begin
+          SplitX := EnsureRange(Round(W * Progress), 0, W);
+          if SplitX > 0 then
+            OutBmp.Canvas.CopyRect(Rect(0, 0, SplitX, H), NextBmp.Canvas, Rect(0, 0, SplitX, H));
+          if SplitX < W then
+            OutBmp.Canvas.CopyRect(Rect(SplitX, 0, W, H), PrevBmp.Canvas, Rect(SplitX, 0, W, H));
+        end;
+      wtLeft:
+        begin
+          SplitX := EnsureRange(Round(W * Progress), 0, W);
+          if SplitX < W then
+            OutBmp.Canvas.CopyRect(Rect(0, 0, W - SplitX, H), PrevBmp.Canvas, Rect(SplitX, 0, W, H));
+          if SplitX > 0 then
+            OutBmp.Canvas.CopyRect(Rect(W - SplitX, 0, W, H), NextBmp.Canvas, Rect(0, 0, SplitX, H));
+        end;
+      wtRight:
+        begin
+          SplitX := EnsureRange(Round(W * Progress), 0, W);
+          if SplitX > 0 then
+            OutBmp.Canvas.CopyRect(Rect(0, 0, SplitX, H), NextBmp.Canvas, Rect(W - SplitX, 0, W, H));
+          if SplitX < W then
+            OutBmp.Canvas.CopyRect(Rect(SplitX, 0, W, H), PrevBmp.Canvas, Rect(0, 0, W - SplitX, H));
+        end;
+      wtCenter:
+        begin
+          OutBmp.Canvas.Draw(0, 0, PrevBmp);
+          CurW := EnsureRange(Round(W * Progress), 2, W);
+          CurH := EnsureRange(Round(H * Progress), 2, H);
+          X0 := (W - CurW) div 2;
+          Y0 := (H - CurH) div 2;
+          R := Rect(X0, Y0, X0 + CurW, Y0 + CurH);
+          OutBmp.Canvas.CopyRect(R, NextBmp.Canvas, R);
+        end;
+    else
+      BlendBitmapsScanline(PrevBmp, NextBmp, OutBmp, Progress);
+    end;
+
+    Result := RenderWallpaperFromBitmap(OutBmp, OutputDir, UseBMP, ToggleSlot, OutputPath);
+  finally
+    OutBmp.Free;
+  end;
+end;
+
+function RenderWallpaperWithClock(const SourcePath, OutputDir: string;
+  Config: TWallCycleConfig; var ToggleSlot: Integer; out OutputPath: string): Boolean;
+var
+  Bmp: TBitmap;
+begin
+  Result := False;
+  OutputPath := '';
+  Bmp := CreateRenderedWallpaperBitmap(SourcePath, Config);
+  if Bmp = nil then Exit;
+  try
+    Result := RenderWallpaperFromBitmap(Bmp, OutputDir, False, ToggleSlot, OutputPath);
   finally
     Bmp.Free;
-    Pic.Free;
   end;
 end;
 
