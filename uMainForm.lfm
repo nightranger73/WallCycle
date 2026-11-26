@@ -399,6 +399,16 @@ object MainForm: TMainForm
         TabOrder = 10
         Value = 600
       end
+      object ChkDailyRecheck: TCheckBox
+        Left = 542
+        Height = 22
+        Top = 505
+        Width = 230
+        Caption = 'Auto-recheck sources daily'
+        Checked = True
+        State = cbChecked
+        TabOrder = 11
+      end
       object BtnPrevWallpaper: TButton
         Left = 16
         Height = 34
@@ -406,7 +416,7 @@ object MainForm: TMainForm
         Width = 148
         Caption = 'Previous Wallpaper'
         OnClick = BtnPrevWallpaperClick
-        TabOrder = 11
+        TabOrder = 12
       end
       object BtnPauseResume: TButton
         Left = 174
@@ -415,7 +425,7 @@ object MainForm: TMainForm
         Width = 156
         Caption = 'Pause Slideshow'
         OnClick = BtnPauseResumeClick
-        TabOrder = 12
+        TabOrder = 13
       end
       object BtnNextWallpaper: TButton
         Left = 340
@@ -424,7 +434,7 @@ object MainForm: TMainForm
         Width = 148
         Caption = 'Next Wallpaper'
         OnClick = BtnNextWallpaperClick
-        TabOrder = 13
+        TabOrder = 14
       end
       object BtnOpenWallHavenPage: TButton
         Left = 498
@@ -434,7 +444,7 @@ object MainForm: TMainForm
         Caption = 'WallHaven.cc Info'
         Enabled = False
         OnClick = MnuOpenWallHavenPageClick
-        TabOrder = 14
+        TabOrder = 15
       end
       object LblCurrentFile: TLabel
         Left = 16

@@ -91,6 +91,8 @@ type
     WallHavenMaxPages: Integer;      // Depth in pages (default 10)
     WallHavenCacheDir: string;
     WallHavenMaxCached: Integer;
+    DailySourceRecheck: Boolean;
+    LastDailyRecheckUtc: Int64;
 
     // OS Backend preferences
     LinuxBackend: TLinuxBackendMode;
@@ -249,23 +251,47 @@ begin
     Result := '[PC Folder] ' + Target;
 end;
 
-function TWallpaperSource.GetWallHavenSubDir(const BaseCacheDir: string): string;
+function EncodePathSlug(const Raw: string): string;
 var
-  Slug: string;
   I: Integer;
   Ch: Char;
+  HashVal: Cardinal;
 begin
-  Slug := '';
-  for I := 1 to Length(Target) do
+  Result := '';
+  HashVal := 2166136261;
+  for I := 1 to Length(Raw) do
   begin
-    Ch := LowerCase(Target[I]);
-    if Ch in ['a'..'z', '0'..'9'] then
-      Slug := Slug + Ch
-    else if (Length(Slug) > 0) and (Slug[Length(Slug)] <> '_') then
-      Slug := Slug + '_';
+    Ch := Raw[I];
+    HashVal := (HashVal xor Ord(Ch)) * 16777619;
+    if Ch in ['A'..'Z'] then
+      Result := Result + Chr(Ord(Ch) + 32)
+    else if Ch in ['a'..'z', '0'..'9', '-'] then
+      Result := Result + Ch
+    else if Ch = ' ' then
+      Result := Result + '_'
+    else
+      Result := Result + '_' + LowerCase(IntToHex(Ord(Ch), 2));
   end;
-  if Slug = '' then Slug := 'default';
-  Result := IncludeTrailingPathDelimiter(BaseCacheDir) + Slug + '_' + Sorting;
+
+  while (Length(Result) > 0) and (Result[1] = '_') do
+    Delete(Result, 1, 1);
+  while (Length(Result) > 0) and (Result[Length(Result)] = '_') do
+    Delete(Result, Length(Result), 1);
+
+  if Result = '' then
+    Result := 'default';
+
+  if Length(Result) > 64 then
+    Result := Copy(Result, 1, 55) + '_' + LowerCase(IntToHex(HashVal, 8));
+end;
+
+function TWallpaperSource.GetWallHavenSubDir(const BaseCacheDir: string): string;
+var
+  Slug, SortSlug: string;
+begin
+  Slug := EncodePathSlug(Target);
+  SortSlug := EncodePathSlug(Sorting);
+  Result := IncludeTrailingPathDelimiter(BaseCacheDir) + Slug + '_' + SortSlug;
 end;
 
 { TWallCycleConfig }
@@ -306,6 +332,8 @@ begin
   WallHavenMaxPages := 10;
   WallHavenCacheDir := GetDefaultCacheDir;
   WallHavenMaxCached := 100;
+  DailySourceRecheck := True;
+  LastDailyRecheckUtc := 0;
 
   LinuxBackend := lbAuto;
   StartMinimized := False;
@@ -476,6 +504,8 @@ begin
     WallHavenMaxCached := Obj.Get('wallHavenMaxCached', WallHavenMaxCached);
     if WallHavenMaxCached < 5 then WallHavenMaxCached := 5;
     if WallHavenMaxCached > 2000 then WallHavenMaxCached := 2000;
+    DailySourceRecheck := Obj.Get('dailySourceRecheck', DailySourceRecheck);
+    LastDailyRecheckUtc := Obj.Get('lastDailyRecheckUtc', LastDailyRecheckUtc);
 
     LinuxBackend := StrToBackend(Obj.Get('linuxBackend', BackendToStr(LinuxBackend)));
     StartMinimized := Obj.Get('startMinimized', StartMinimized);
@@ -543,6 +573,8 @@ begin
     Obj.Add('wallHavenMaxPages', WallHavenMaxPages);
     Obj.Add('wallHavenCacheDir', WallHavenCacheDir);
     Obj.Add('wallHavenMaxCached', WallHavenMaxCached);
+    Obj.Add('dailySourceRecheck', DailySourceRecheck);
+    Obj.Add('lastDailyRecheckUtc', LastDailyRecheckUtc);
 
     Obj.Add('linuxBackend', BackendToStr(LinuxBackend));
     Obj.Add('startMinimized', StartMinimized);

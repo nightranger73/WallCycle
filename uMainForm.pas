@@ -5,7 +5,7 @@ unit uMainForm;
 interface
 
 uses
-  Classes, SysUtils, Types, Forms, Controls, Graphics, Dialogs, ComCtrls, StdCtrls,
+  Classes, SysUtils, Types, DateUtils, Forms, Controls, Graphics, Dialogs, ComCtrls, StdCtrls,
   ExtCtrls, Spin, Menus, CheckLst, Math, LCLType, LCLIntf, UniqueInstance,
   uConfig, uLuminanceFilter, uPlaylistScanner, uImageOverlay,
   uWallpaperBackend, uWallHavenClient;
@@ -62,6 +62,7 @@ type
     ComboTransition: TComboBox;
     LblTransitionDur: TLabel;
     SpinTransitionMs: TSpinEdit;
+    ChkDailyRecheck: TCheckBox;
     BtnPrevWallpaper: TButton;
     BtnPauseResume: TButton;
     BtnNextWallpaper: TButton;
@@ -152,6 +153,7 @@ type
     FConfig: TWallCycleConfig;
     FLuminanceCache: TLuminanceCache;
     FScanThread: TPlaylistScanThread;
+    FFetchThread: TWallHavenFetchThread;
     FPlaylist: TStringList;
     FCurrentIndex: Integer;
     FCurrentSourceImage: string;
@@ -164,6 +166,8 @@ type
     FAutoSelectOnReady: Boolean;
     FLoadingUI: Boolean;
     FTransitionToken: Integer;
+    FLastDailyRecheckAttemptUtc: Int64;
+    FStartupRecheckPending: Boolean;
 
     procedure LogMsg(const S: string);
     procedure SyncChecklistFromConfig;
@@ -172,6 +176,10 @@ type
     procedure StopAsyncScan;
     procedure StartAsyncScan(SelectFirstOnReady: Boolean);
     procedure PollScanThread;
+    procedure StopWallHavenFetch;
+    procedure StartWallHavenFetch(SelectFirstOnReady, IsDailyAuto: Boolean);
+    procedure PollWallHavenFetch;
+    procedure CheckDailySourceRecheck(ForceStartupCheck: Boolean = False);
     procedure ScheduleNextTick;
     procedure AdvanceWallpaper(Step: Integer);
     procedure ApplyCurrentImageWithOverlay;
@@ -269,6 +277,7 @@ begin
   FLuminanceCache.Load;
 
   FScanThread := nil;
+  FFetchThread := nil;
   FPlaylist := TStringList.Create;
   FCurrentIndex := -1;
   FToggleSlot := 0;
@@ -280,6 +289,8 @@ begin
   FAutoSelectOnReady := False;
   FLoadingUI := False;
   FTransitionToken := 0;
+  FLastDailyRecheckAttemptUtc := 0;
+  FStartupRecheckPending := True;
 
   Randomize;
   PopulateSystemFonts;
@@ -310,6 +321,7 @@ end;
 procedure TMainForm.FormDestroy(Sender: TObject);
 begin
   TickTimer.Enabled := False;
+  StopWallHavenFetch;
   StopAsyncScan;
   FPlaylist.Free;
   FLuminanceCache.Free;
@@ -363,6 +375,7 @@ begin
     ComboTransition.ItemIndex := Ord(FConfig.TransitionStyle);
     SpinTransitionMs.Value := EnsureRange(FConfig.TransitionDurationMs,
       SpinTransitionMs.MinValue, SpinTransitionMs.MaxValue);
+    ChkDailyRecheck.Checked := FConfig.DailySourceRecheck;
 
     EditApiKey.Text := FConfig.WallHavenApiKey;
     if ComboSorting.Items.Count > 0 then ComboSorting.ItemIndex := 0;
@@ -436,6 +449,7 @@ begin
   if ComboTransition.ItemIndex >= 0 then
     FConfig.TransitionStyle := TWallpaperTransition(ComboTransition.ItemIndex);
   FConfig.TransitionDurationMs := SpinTransitionMs.Value;
+  FConfig.DailySourceRecheck := ChkDailyRecheck.Checked;
 
   FConfig.WallHavenApiKey := Trim(EditApiKey.Text);
   FConfig.WallHavenCategories := GetWallHavenCategoriesStr;
@@ -501,9 +515,9 @@ var
 begin
   TickTimer.Enabled := False;
 
-  if FScanThread <> nil then
+  if (FScanThread <> nil) or (FFetchThread <> nil) then
   begin
-    TickTimer.Interval := 150;
+    TickTimer.Interval := 200;
     TickTimer.Enabled := True;
     Exit;
   end;
@@ -598,6 +612,11 @@ begin
     FScanThread.WaitFor;
     FreeAndNil(FScanThread);
     ScheduleNextTick;
+    if FStartupRecheckPending then
+    begin
+      FStartupRecheckPending := False;
+      CheckDailySourceRecheck(True);
+    end;
   end;
 end;
 
@@ -808,6 +827,7 @@ var
   ElapsedSec: Integer;
 begin
   PollScanThread;
+  PollWallHavenFetch;
 
   if FScanThread <> nil then
   begin
@@ -837,6 +857,9 @@ begin
     if FConfig.OverlayShowSeconds or (M <> FLastMinuteRendered) then
       ApplyCurrentImageWithOverlay;
   end;
+
+  if (FScanThread = nil) and (FFetchThread = nil) and (not FStartupRecheckPending) then
+    CheckDailySourceRecheck(False);
 
   ScheduleNextTick;
 end;
@@ -1172,16 +1195,42 @@ begin
     RGBToColor(255, 255, 255), RGBToColor(0, 0, 0));
 end;
 
-procedure TMainForm.BtnFetchWallHavenClick(Sender: TObject);
-var
-  Files: TStringList;
-  Stats: TWallHavenFetchStats;
-  I, EnabledWH, MaxPerSrc: Integer;
-  SortStr, CatStr, PurStr, PrevImg: string;
+procedure TMainForm.StopWallHavenFetch;
 begin
-  LoadUIToConfig;
-  CatStr := GetWallHavenCategoriesStr;
-  PurStr := GetWallHavenPurityStr;
+  if FFetchThread <> nil then
+  begin
+    FFetchThread.Terminate;
+    FFetchThread.WaitFor;
+    FreeAndNil(FFetchThread);
+  end;
+  BtnFetchWallHaven.Enabled := True;
+  BtnFetchWallHaven.Caption := 'Fetch Active Feeds';
+  MnuFetchWH.Enabled := True;
+end;
+
+procedure TMainForm.StartWallHavenFetch(SelectFirstOnReady, IsDailyAuto: Boolean);
+var
+  I, EnabledWH, MaxPerSrc: Integer;
+  SortStr, CatStr, PurStr: string;
+begin
+  if FFetchThread <> nil then
+  begin
+    if not IsDailyAuto then
+      LogMsg('A WallHaven background fetch is already running.');
+    Exit;
+  end;
+
+  if not IsDailyAuto then
+  begin
+    LoadUIToConfig;
+    CatStr := GetWallHavenCategoriesStr;
+    PurStr := GetWallHavenPurityStr;
+  end
+  else
+  begin
+    CatStr := FConfig.WallHavenCategories;
+    PurStr := FConfig.WallHavenPurity;
+  end;
 
   EnabledWH := 0;
   for I := 0 to FConfig.Sources.Count - 1 do
@@ -1190,7 +1239,7 @@ begin
 
   if EnabledWH = 0 then
   begin
-    if Trim(EditQuery.Text) <> '' then
+    if (not IsDailyAuto) and (Trim(EditQuery.Text) <> '') then
     begin
       if ComboSorting.ItemIndex >= 0 then
         SortStr := ComboSorting.Items[ComboSorting.ItemIndex]
@@ -1203,49 +1252,147 @@ begin
     end
     else
     begin
-      LogMsg('No active WallHaven.cc source in checklist. Add or check at least one source.');
+      if not IsDailyAuto then
+        LogMsg('No active WallHaven.cc source in checklist. Add or check at least one source.');
       Exit;
     end;
   end;
 
-  if (Copy(PurStr, 3, 1) = '1') and (Trim(FConfig.WallHavenApiKey) = '') then
+  if (not IsDailyAuto) and (Copy(PurStr, 3, 1) = '1') and (Trim(FConfig.WallHavenApiKey) = '') then
     LogMsg('Warning: NSFW purity selected without API Key; WallHaven may return empty results or HTTP 401.');
 
-  FConfig.Save;
+  if not IsDailyAuto then
+    FConfig.Save;
+
   BtnFetchWallHaven.Enabled := False;
+  BtnFetchWallHaven.Caption := 'Fetching...';
+  MnuFetchWH.Enabled := False;
+
+  LogMsg(Format('Fetching from active WallHaven.cc sources in background (up to %d pages deep, max %d cached)...',
+    [FConfig.WallHavenMaxPages, FConfig.WallHavenMaxCached]));
+
+  MaxPerSrc := Min(Max(12, FConfig.WallHavenMaxPages * 3), Max(5, FConfig.WallHavenMaxCached));
+  FFetchThread := TWallHavenFetchThread.Create(FConfig, MaxPerSrc, FLuminanceCache,
+    SelectFirstOnReady, IsDailyAuto, FCurrentSourceImage);
+  ScheduleNextTick;
+end;
+
+procedure TMainForm.PollWallHavenFetch;
+var
+  State: TWallHavenFetchState;
+  Stats: TWallHavenFetchStats;
+  Files, Logs: TStringList;
+  I: Integer;
+  SelectFirst, IsDailyAuto: Boolean;
+  PrevImg: string;
+begin
+  if FFetchThread = nil then Exit;
+
+  Logs := TStringList.Create;
   try
-    LogMsg(Format('Fetching from active WallHaven.cc sources (up to %d pages deep, max %d cached)...',
-      [FConfig.WallHavenMaxPages, FConfig.WallHavenMaxCached]));
-    Application.ProcessMessages;
-    MaxPerSrc := Min(Max(12, FConfig.WallHavenMaxPages * 3), Max(5, FConfig.WallHavenMaxCached));
-    Stats := FetchAllEnabledWallHavenSources(FConfig, MaxPerSrc, Files);
-    try
-      if Stats.LastError <> '' then
-        LogMsg(Stats.LastError);
-
-      LogMsg(Format('WallHaven (%d pg.): %d examined, %d skipped (palette), %d skipped (pixels), %d ready.',
-        [Stats.PagesScanned, Stats.CandidatesExamined, Stats.RejectedByPalette, Stats.RejectedByPixels, Stats.DownloadedCount]));
-
-      if (Stats.DownloadedCount = 0) and (Stats.CandidatesExamined > 0) and
-         ((Stats.RejectedByPalette + Stats.RejectedByPixels) >= Stats.CandidatesExamined) then
-        LogMsg('Tip: all examined images exceeded the luminance threshold (try raising thresholds or disabling the filter).');
-
-      StartAsyncScan(Files.Count = 0);
-      if Files.Count > 0 then
-      begin
-        PrevImg := FCurrentSourceImage;
-        FCurrentSourceImage := Files[0];
-        FRemainingSeconds := Max(1, FConfig.IntervalMinutes) * 60;
-        FLastTickTime := Now;
-        ApplyWallpaperWithTransition(PrevImg);
-        ScheduleNextTick;
-      end;
-    finally
-      Files.Free;
-    end;
+    FFetchThread.ConsumeLogs(Logs);
+    for I := 0 to Logs.Count - 1 do
+      LogMsg(Logs[I]);
   finally
-    BtnFetchWallHaven.Enabled := True;
+    Logs.Free;
   end;
+
+  State := FFetchThread.GetState;
+  if State.Running then Exit;
+
+  Files := TStringList.Create;
+  try
+    FFetchThread.ConsumeResult(Stats, Files, SelectFirst, IsDailyAuto);
+    FFetchThread.WaitFor;
+    FreeAndNil(FFetchThread);
+
+    BtnFetchWallHaven.Enabled := True;
+    BtnFetchWallHaven.Caption := 'Fetch Active Feeds';
+    MnuFetchWH.Enabled := True;
+
+    if Stats.LastError <> '' then
+      LogMsg(Stats.LastError);
+
+    LogMsg(Format('WallHaven (%d pg.): %d examined, %d skipped (palette), %d skipped (pixels), %d ready.',
+      [Stats.PagesScanned, Stats.CandidatesExamined, Stats.RejectedByPalette, Stats.RejectedByPixels, Stats.DownloadedCount]));
+
+    if Stats.PrunedCount > 0 then
+      LogMsg(Format('Cache cleanup: removed %d oldest file(s) by creation date (limit: %d).',
+        [Stats.PrunedCount, FConfig.WallHavenMaxCached]));
+
+    if (Stats.DownloadedCount = 0) and (Stats.CandidatesExamined > 0) and
+       ((Stats.RejectedByPalette + Stats.RejectedByPixels) >= Stats.CandidatesExamined) then
+      LogMsg('Tip: all examined images exceeded the luminance threshold (try raising thresholds or disabling the filter).');
+
+    if (Stats.DownloadedCount > 0) or (Stats.LastError = '') then
+    begin
+      FConfig.LastDailyRecheckUtc := DateTimeToUnix(Now);
+      FConfig.Save;
+    end;
+
+    if SelectFirst and (Files.Count > 0) then
+    begin
+      PrevImg := FCurrentSourceImage;
+      FCurrentSourceImage := Files[0];
+      FRemainingSeconds := Max(1, FConfig.IntervalMinutes) * 60;
+      FLastTickTime := Now;
+      ApplyWallpaperWithTransition(PrevImg);
+    end;
+    StartAsyncScan(FCurrentSourceImage = '');
+    ScheduleNextTick;
+  finally
+    Files.Free;
+  end;
+end;
+
+procedure TMainForm.CheckDailySourceRecheck(ForceStartupCheck: Boolean);
+var
+  NowUtc: Int64;
+  I, EnabledWH, EnabledLocal: Integer;
+begin
+  if not FConfig.DailySourceRecheck then Exit;
+  if (FFetchThread <> nil) or (FScanThread <> nil) then Exit;
+
+  NowUtc := DateTimeToUnix(Now);
+  if (FConfig.LastDailyRecheckUtc > 0) and ((NowUtc - FConfig.LastDailyRecheckUtc) < 86400) then
+    Exit;
+  if (FLastDailyRecheckAttemptUtc > 0) and ((NowUtc - FLastDailyRecheckAttemptUtc) < 3600) then
+    Exit;
+
+  EnabledWH := 0;
+  EnabledLocal := 0;
+  for I := 0 to FConfig.Sources.Count - 1 do
+  begin
+    if not FConfig.GetSource(I).Enabled then Continue;
+    if FConfig.GetSource(I).Kind = skWallHaven then
+      Inc(EnabledWH)
+    else
+      Inc(EnabledLocal);
+  end;
+
+  if (EnabledWH = 0) and (EnabledLocal = 0) then Exit;
+
+  FLastDailyRecheckAttemptUtc := NowUtc;
+  if EnabledWH > 0 then
+  begin
+    LogMsg('Daily source recheck: fetching active WallHaven.cc feeds in background...');
+    StartWallHavenFetch(FCurrentSourceImage = '', True);
+  end
+  else
+  begin
+    FConfig.LastDailyRecheckUtc := NowUtc;
+    FConfig.Save;
+    if not ForceStartupCheck then
+    begin
+      LogMsg('Daily source recheck: rescanning local PC folders in background...');
+      StartAsyncScan(FCurrentSourceImage = '');
+    end;
+  end;
+end;
+
+procedure TMainForm.BtnFetchWallHavenClick(Sender: TObject);
+begin
+  StartWallHavenFetch(True, False);
 end;
 
 procedure TMainForm.ChkAutoStartChange(Sender: TObject);

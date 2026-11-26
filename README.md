@@ -20,7 +20,7 @@ Native desktop application written in **Object Pascal (Free Pascal 3.2+ / Lazaru
    - **Generic Wayland / X11**: `awww`, `swww`, `feh`, `nitrogen`.
 3. **Real-Time Date & Time Overlay**: automatically crops and cover-fits images to the primary monitor resolution before rendering so the overlay is never clipped off-screen; anti-aliased bitmap rendering with a translucent dark scrim in the chosen corner (`Top-Left`, `Top-Right`, `Bottom-Left`, `Bottom-Right`), updated automatically on minute changes (or every second when seconds are enabled) using alternating `_0.png`/`_1.png` files to bypass compositor caching.
 4. **WallHaven.cc + Dark Image Filter**:
-   - Supports `X-API-Key`, **Categories** (`General`, `Anime`, `People`), **Purity** (`SFW`, `Sketchy`, `NSFW`), multi-page depth (`1..25`), and **Max cached** (`5..2000`) directly from the UI.
+   - Supports `X-API-Key`, **Categories** (`General`, `Anime`, `People`), **Purity** (`SFW`, `Sketchy`, `NSFW`), multi-page depth (`1..25`), **Max cached** (`5..2000`), non-blocking background fetching, and automatic **daily source recheck** directly from the UI.
    - Fast pre-filtering using the dominant `colors` palette returned by the WallHaven API prior to downloading.
    - Pixel-level ITU-R BT.709 verification (`Y = 0.2126 R + 0.7152 G + 0.0722 B`) across the full frame and specifically on the left column (24%, desktop icon zone). Images that are too bright are automatically skipped.
 5. **Cross-Platform Autostart (System & Logs Tab)**:
