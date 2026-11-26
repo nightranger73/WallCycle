@@ -2,9 +2,34 @@
 Type=Application
 Version=1.0
 Name=WallCycle
-Comment=Slideshow sfondi desktop con overlay Data e Ora e filtro luminosità
+Comment=Desktop wallpaper slideshow with real-time Date & Time overlay, luminance filter, and multi-monitor support
 Exec=/usr/bin/wallcycle
 Icon=preferences-desktop-wallpaper
 Terminal=false
 Categories=Utility;DesktopSettings;GTK;
 StartupNotify=false
+Actions=Next;Previous;TogglePause;Favorite;Blacklist;Info;
+
+[Desktop Action Next]
+Name=Next Wallpaper
+Exec=/usr/bin/wallcycle --next
+
+[Desktop Action Previous]
+Name=Previous Wallpaper
+Exec=/usr/bin/wallcycle --previous
+
+[Desktop Action TogglePause]
+Name=Pause / Resume Slideshow
+Exec=/usr/bin/wallcycle --toggle-pause
+
+[Desktop Action Favorite]
+Name=Save Current to Favorites
+Exec=/usr/bin/wallcycle --favorite
+
+[Desktop Action Blacklist]
+Name=Blacklist Current Wallpaper
+Exec=/usr/bin/wallcycle --blacklist
+
+[Desktop Action Info]
+Name=Open Info on WallHaven.cc
+Exec=/usr/bin/wallcycle --info

@@ -52,11 +52,13 @@ type
     FCheckIconZone: Boolean;
     FWallHavenApiKey: string;
     FWallHavenAtLeast: string;
+    FWallHavenRatio: string;
     FWallHavenMaxPages: Integer;
     FWallHavenCacheDir: string;
     FWallHavenMaxCached: Integer;
     FProtectedFile: string;
     FCache: TLuminanceCache;
+    FBlacklist: TStringList;
 
     FState: TWallHavenFetchState;
     FDownloadedFiles: TStringList;
@@ -70,7 +72,7 @@ type
   public
     constructor Create(Config: TWallCycleConfig; MaxPerSource: Integer;
       Cache: TLuminanceCache; ASelectFirstOnReady, AIsDailyAuto: Boolean;
-      const AProtectedFile: string = '');
+      const AProtectedFile: string = ''; const AResolvedAtLeast: string = '');
     destructor Destroy; override;
     function GetState: TWallHavenFetchState;
     procedure ConsumeLogs(Target: TStrings);
@@ -448,8 +450,9 @@ begin
   ErrMsg := 'Neither curl nor wget found in PATH';
 end;
 
-function BuildSearchUrl(const ApiAtLeast: string; const Src: TWallHavenSourceSnapshot;
-  const SortOverride: string; PageNum: Integer): string;
+function BuildSearchUrl(const ApiAtLeast, ApiRatio: string;
+  const Src: TWallHavenSourceSnapshot; const SortOverride: string;
+  PageNum: Integer): string;
 var
   SortMode: string;
 begin
@@ -466,14 +469,37 @@ begin
   if SameText(SortMode, 'toplist') then
     Result := Result + '&topRange=1y';
 
-  if Trim(ApiAtLeast) <> '' then
+  if (Trim(ApiAtLeast) <> '') and (not SameText(Trim(ApiAtLeast), 'any')) then
     Result := Result + '&atleast=' + UrlEncodeParam(ApiAtLeast);
+
+  if (Trim(ApiRatio) <> '') and (not SameText(Trim(ApiRatio), 'any')) then
+    Result := Result + '&ratios=' + UrlEncodeParam(ApiRatio);
+end;
+
+function IsEntryBlacklisted(Blacklist: TStrings; const FilePath, ImgId: string): Boolean;
+var
+  I: Integer;
+  Token, Entry: string;
+begin
+  Result := False;
+  if Blacklist = nil then Exit;
+  Token := '';
+  if ImgId <> '' then
+    Token := 'wh:' + LowerCase(ImgId);
+
+  for I := 0 to Blacklist.Count - 1 do
+  begin
+    Entry := Trim(Blacklist[I]);
+    if Entry = '' then Continue;
+    if (Token <> '') and SameText(Entry, Token) then Exit(True);
+    if (FilePath <> '') and SameFileName(Entry, FilePath) then Exit(True);
+  end;
 end;
 
 function FetchWallHavenSnapshot(const Src: TWallHavenSourceSnapshot;
-  const ApiKey, AtLeast: string; MaxPages, MaxToDownload: Integer;
+  const ApiKey, AtLeast, Ratio: string; MaxPages, MaxToDownload: Integer;
   DarkFilterEnabled: Boolean; MaxLum, IconZoneLum: Double; CheckIconZone: Boolean;
-  Cache: TLuminanceCache; AbortThread: TThread;
+  Cache: TLuminanceCache; Blacklist: TStrings; AbortThread: TThread;
   out DownloadedFiles: TStringList): TWallHavenFetchStats;
 var
   Url, JsonText, HttpErr, DlErr, LastDlErr, ImgId, ImgUrl, Ext, LocalPath: string;
@@ -513,7 +539,7 @@ begin
     if PageNum > 1 then Sleep(120);
     if IsThreadAborted(AbortThread) then Break;
 
-    Url := BuildSearchUrl(AtLeast, Src, ActiveSort, PageNum);
+    Url := BuildSearchUrl(AtLeast, Ratio, Src, ActiveSort, PageNum);
     Result.QueryUrl := Url;
 
     Data := nil;
@@ -545,7 +571,7 @@ begin
       begin
         FreeAndNil(Data);
         ActiveSort := 'favorites';
-        Url := BuildSearchUrl(AtLeast, Src, ActiveSort, 1);
+        Url := BuildSearchUrl(AtLeast, Ratio, Src, ActiveSort, 1);
         Result.QueryUrl := Url;
         if HttpGetText(Url, ApiKey, JsonText, HttpErr, AbortThread) then
         begin
@@ -581,6 +607,11 @@ begin
         ImgUrl := Item.Get('path', '');
         if (ImgId = '') or (ImgUrl = '') then Continue;
 
+        Ext := ExtractSafeImageExt(ImgUrl);
+        LocalPath := IncludeTrailingPathDelimiter(Src.SubDir) + 'wallhaven-' + ImgId + Ext;
+        if IsEntryBlacklisted(Blacklist, LocalPath, ImgId) then
+          Continue;
+
         // Step 1: Fast pre-filter using WallHaven's 5 dominant palette colors
         ColorsArr := Item.Get('colors', TJSONArray(nil));
         if (ColorsArr <> nil) and (ColorsArr.Count > 0) and DarkFilterEnabled then
@@ -595,9 +626,6 @@ begin
             Continue;
           end;
         end;
-
-        Ext := ExtractSafeImageExt(ImgUrl);
-        LocalPath := IncludeTrailingPathDelimiter(Src.SubDir) + 'wallhaven-' + ImgId + Ext;
 
         IsNewFile := not FileExists(LocalPath);
         if IsNewFile then
@@ -683,6 +711,7 @@ begin
     Snap,
     Config.WallHavenApiKey,
     Config.WallHavenAtLeast,
+    Config.WallHavenRatio,
     Config.WallHavenMaxPages,
     MaxToDownload,
     Config.DarkFilterEnabled,
@@ -690,6 +719,7 @@ begin
     Config.IconZoneMaxLuminance,
     Config.CheckIconZone,
     nil,
+    Config.BlacklistedItems,
     nil,
     DownloadedFiles
   );
@@ -741,7 +771,7 @@ end;
 
 constructor TWallHavenFetchThread.Create(Config: TWallCycleConfig; MaxPerSource: Integer;
   Cache: TLuminanceCache; ASelectFirstOnReady, AIsDailyAuto: Boolean;
-  const AProtectedFile: string);
+  const AProtectedFile: string; const AResolvedAtLeast: string);
 var
   I, Count: Integer;
   Src: TWallpaperSource;
@@ -751,6 +781,9 @@ begin
   FLock := TCriticalSection.Create;
   FDownloadedFiles := TStringList.Create;
   FLogQueue := TStringList.Create;
+  FBlacklist := TStringList.Create;
+  FBlacklist.CaseSensitive := False;
+  FBlacklist.Assign(Config.BlacklistedItems);
   FCache := Cache;
   FMaxPerSource := MaxPerSource;
   FSelectFirstOnReady := ASelectFirstOnReady;
@@ -762,7 +795,11 @@ begin
   FIconZoneMaxLuminance := Config.IconZoneMaxLuminance;
   FCheckIconZone := Config.CheckIconZone;
   FWallHavenApiKey := Config.WallHavenApiKey;
-  FWallHavenAtLeast := Config.WallHavenAtLeast;
+  if AResolvedAtLeast <> '' then
+    FWallHavenAtLeast := AResolvedAtLeast
+  else
+    FWallHavenAtLeast := Config.WallHavenAtLeast;
+  FWallHavenRatio := Config.WallHavenRatio;
   FWallHavenMaxPages := Config.WallHavenMaxPages;
   FWallHavenCacheDir := Config.WallHavenCacheDir;
   FWallHavenMaxCached := Config.WallHavenMaxCached;
@@ -789,6 +826,7 @@ end;
 
 destructor TWallHavenFetchThread.Destroy;
 begin
+  FBlacklist.Free;
   FLogQueue.Free;
   FDownloadedFiles.Free;
   FLock.Free;
@@ -830,6 +868,7 @@ begin
         FSources[I],
         FWallHavenApiKey,
         FWallHavenAtLeast,
+        FWallHavenRatio,
         FWallHavenMaxPages,
         FMaxPerSource,
         FDarkFilterEnabled,
@@ -837,6 +876,7 @@ begin
         FIconZoneMaxLuminance,
         FCheckIconZone,
         FCache,
+        FBlacklist,
         Self,
         PartFiles
       );

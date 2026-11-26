@@ -21,10 +21,22 @@ type
 
 function DetectDesktopEnvironment(Mode: TLinuxBackendMode): string;
 function BackendHasNativeTransition(Mode: TLinuxBackendMode): Boolean;
+function BackendSupportsPerMonitorFiles(Mode: TLinuxBackendMode): Boolean;
 function RecommendedSoftwareTransitionSteps(Mode: TLinuxBackendMode): Integer;
+
 function ApplySystemWallpaper(const ImagePath: string;
   Mode: TLinuxBackendMode; Transition: TWallpaperTransition = wtFade;
+  TransitionMs: Integer = 600;
+  MultiMode: TMultiMonitorMode = mmPrimary): TBackendResult;
+
+function ApplySystemMultiMonitorWallpapers(const ImagePaths: TStrings;
+  Mode: TLinuxBackendMode; MultiMode: TMultiMonitorMode;
+  Transition: TWallpaperTransition = wtFade;
   TransitionMs: Integer = 600): TBackendResult;
+
+function IsFullscreenAppActive: Boolean;
+function IsRunningOnBattery: Boolean;
+
 function IsAutoStartEnabled: Boolean;
 function SetAutoStartEnabled(Enabled: Boolean; out Msg: string): Boolean;
 
@@ -209,6 +221,21 @@ begin
   {$ENDIF}
 end;
 
+function BackendSupportsPerMonitorFiles(Mode: TLinuxBackendMode): Boolean;
+{$IFDEF UNIX}
+var
+  Eff: TLinuxBackendMode;
+{$ENDIF}
+begin
+  {$IFDEF WINDOWS}
+  Exit(False);
+  {$ENDIF}
+  {$IFDEF UNIX}
+  Eff := ResolveEffectiveLinuxMode(Mode);
+  Result := Eff in [lbKDE, lbXFCE, lbHyprland, lbSway, lbNiri, lbUmbriel, lbAwww, lbSwww, lbFeh];
+  {$ENDIF}
+end;
+
 function RecommendedSoftwareTransitionSteps(Mode: TLinuxBackendMode): Integer;
 {$IFDEF UNIX}
 var
@@ -228,9 +255,10 @@ begin
 end;
 
 {$IFDEF UNIX}
-function ApplyKDE(const ImagePath: string; out CmdLog, Msg: string): Boolean;
+function ApplyKDEMulti(const ImagePaths: TStrings; out CmdLog, Msg: string): Boolean;
 var
-  QDBus, Script, OutStr: string;
+  QDBus, Script, PathsArrayJS, OutStr, EscPath: string;
+  I: Integer;
 begin
   QDBus := FindExe('qdbus6');
   if QDBus = '' then QDBus := FindExe('qdbus-qt5');
@@ -242,13 +270,24 @@ begin
     Exit(False);
   end;
 
+  PathsArrayJS := '[';
+  for I := 0 to ImagePaths.Count - 1 do
+  begin
+    EscPath := StringReplace(ImagePaths[I], '\', '\\', [rfReplaceAll]);
+    EscPath := StringReplace(EscPath, '"', '\"', [rfReplaceAll]);
+    if I > 0 then PathsArrayJS := PathsArrayJS + ',';
+    PathsArrayJS := PathsArrayJS + '"file://' + EscPath + '"';
+  end;
+  PathsArrayJS := PathsArrayJS + ']';
+
   Script :=
+    'var imgs = ' + PathsArrayJS + '; ' +
     'var allDesktops = desktops(); ' +
     'for (var i = 0; i < allDesktops.length; i++) { ' +
     '  var d = allDesktops[i]; ' +
     '  d.wallpaperPlugin = "org.kde.image"; ' +
     '  d.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"]; ' +
-    '  d.writeConfig("Image", "file://' + StringReplace(ImagePath, '"', '\"', [rfReplaceAll]) + '"); ' +
+    '  d.writeConfig("Image", imgs[i % imgs.length]); ' +
     '}';
 
   CmdLog := QDBus + ' org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript';
@@ -261,11 +300,37 @@ begin
   Msg := OutStr;
 end;
 
-function ApplyXFCE(const ImagePath: string; out CmdLog, Msg: string): Boolean;
+function ApplyKDE(const ImagePath: string; out CmdLog, Msg: string): Boolean;
 var
-  Xfconf, OutStr: string;
-  Props: TStringList;
-  I: Integer;
+  SL: TStringList;
+begin
+  SL := TStringList.Create;
+  try
+    SL.Add(ImagePath);
+    Result := ApplyKDEMulti(SL, CmdLog, Msg);
+  finally
+    SL.Free;
+  end;
+end;
+
+function ExtractXfceMonitorPrefix(const PropPath: string): string;
+var
+  P: Integer;
+begin
+  // Example: /backdrop/screen0/monitorHDMI-A-1/workspace0/last-image -> /backdrop/screen0/monitorHDMI-A-1/
+  Result := '';
+  P := Pos('/monitor', PropPath);
+  if P = 0 then Exit;
+  P := Pos('/', Copy(PropPath, P + 1, Length(PropPath)));
+  if P = 0 then Exit;
+  Result := Copy(PropPath, 1, Pos('/monitor', PropPath) + P);
+end;
+
+function ApplyXFCEMulti(const ImagePaths: TStrings; out CmdLog, Msg: string): Boolean;
+var
+  Xfconf, OutStr, Prop, Prefix, ImgPath: string;
+  Props, Monitors: TStringList;
+  I, MonIdx: Integer;
 begin
   Xfconf := FindExe('xfconf-query');
   if Xfconf = '' then
@@ -284,37 +349,201 @@ begin
 
   Result := False;
   Props := TStringList.Create;
+  Monitors := TStringList.Create;
   try
+    Monitors.CaseSensitive := True;
     Props.Text := OutStr;
     for I := 0 to Props.Count - 1 do
     begin
-      if (Pos('/last-image', Props[I]) > 0) or (Pos('/image-path', Props[I]) > 0) then
+      Prop := Trim(Props[I]);
+      if (Pos('/last-image', Prop) > 0) or (Pos('/image-path', Prop) > 0) then
       begin
-        if ExecCmd(Xfconf, ['-c', 'xfce4-desktop', '-p', Trim(Props[I]), '-s', ImagePath], OutStr) then
+        Prefix := ExtractXfceMonitorPrefix(Prop);
+        if Prefix = '' then Prefix := 'default';
+        MonIdx := Monitors.IndexOf(Prefix);
+        if MonIdx < 0 then
+          MonIdx := Monitors.Add(Prefix);
+        ImgPath := ImagePaths[MonIdx mod ImagePaths.Count];
+        if ExecCmd(Xfconf, ['-c', 'xfce4-desktop', '-p', Prop, '-s', ImgPath], OutStr) then
           Result := True;
       end;
     end;
     if Result then
-      Msg := 'Updated all XFCE monitors'
+      Msg := Format('Updated %d XFCE monitor(s)', [Max(1, Monitors.Count)])
     else
       Msg := 'No /last-image property found in xfce4-desktop';
   finally
+    Monitors.Free;
     Props.Free;
   end;
 end;
 
-function ApplyAwww(const ImagePath: string; Transition: TWallpaperTransition;
-  TransitionMs: Integer; out CmdLog, Msg: string): Boolean;
+function ApplyXFCE(const ImagePath: string; out CmdLog, Msg: string): Boolean;
 var
-  Awww, Swww, OutStr, TName, TDur: string;
+  SL: TStringList;
 begin
+  SL := TStringList.Create;
+  try
+    SL.Add(ImagePath);
+    Result := ApplyXFCEMulti(SL, CmdLog, Msg);
+  finally
+    SL.Free;
+  end;
+end;
+
+procedure QueryAwwwOutputs(const ExeName: string; Outputs: TStringList);
+var
+  OutStr, Line, OutName: string;
+  Lines: TStringList;
+  I, ColonPos: Integer;
+begin
+  Outputs.Clear;
+  if not ExecCmd(ExeName, ['query'], OutStr) then Exit;
+  Lines := TStringList.Create;
+  try
+    Lines.Text := OutStr;
+    for I := 0 to Lines.Count - 1 do
+    begin
+      Line := Trim(Lines[I]);
+      if Line = '' then Continue;
+      // Format is usually: "DP-1: ..." or "Output DP-1: ..."
+      if Pos('Output ', Line) = 1 then
+        Delete(Line, 1, 7);
+      ColonPos := Pos(':', Line);
+      if ColonPos > 1 then
+      begin
+        OutName := Trim(Copy(Line, 1, ColonPos - 1));
+        if (OutName <> '') and (Outputs.IndexOf(OutName) < 0) then
+          Outputs.Add(OutName);
+      end;
+    end;
+  finally
+    Lines.Free;
+  end;
+end;
+
+procedure QuerySwayOutputs(const SwayExe: string; Outputs: TStringList);
+var
+  OutStr, Chunk, OutName: string;
+  P, Q1, Q2: Integer;
+begin
+  Outputs.Clear;
+  if not ExecCmd(SwayExe, ['-t', 'get_outputs'], OutStr) then Exit;
+  Chunk := OutStr;
+  while True do
+  begin
+    P := Pos('"name":', Chunk);
+    if P = 0 then Break;
+    Delete(Chunk, 1, P + 6);
+    Q1 := Pos('"', Chunk);
+    if Q1 = 0 then Break;
+    Delete(Chunk, 1, Q1);
+    Q2 := Pos('"', Chunk);
+    if Q2 = 0 then Break;
+    OutName := Trim(Copy(Chunk, 1, Q2 - 1));
+    Delete(Chunk, 1, Q2);
+    if (OutName <> '') and (Outputs.IndexOf(OutName) < 0) then
+      Outputs.Add(OutName);
+  end;
+end;
+
+procedure QueryHyprOutputs(const HyprCtl: string; Outputs: TStringList);
+var
+  OutStr, Line, Rest, OutName: string;
+  Lines: TStringList;
+  I, Sp: Integer;
+begin
+  Outputs.Clear;
+  if not ExecCmd(HyprCtl, ['monitors'], OutStr) then Exit;
+  Lines := TStringList.Create;
+  try
+    Lines.Text := OutStr;
+    for I := 0 to Lines.Count - 1 do
+    begin
+      Line := Trim(Lines[I]);
+      if Pos('Monitor ', Line) = 1 then
+      begin
+        Rest := Trim(Copy(Line, 9, Length(Line)));
+        Sp := Pos(' ', Rest);
+        if Sp > 1 then
+          OutName := Copy(Rest, 1, Sp - 1)
+        else
+          OutName := Rest;
+        if (OutName <> '') and (Outputs.IndexOf(OutName) < 0) then
+          Outputs.Add(OutName);
+      end;
+    end;
+  finally
+    Lines.Free;
+  end;
+end;
+
+function RunAwwwMulti(const ExePath: string; const ImagePaths: TStrings;
+  Transition: TWallpaperTransition; TransitionMs: Integer;
+  out CmdLog, Msg: string): Boolean;
+var
+  Outputs: TStringList;
+  TName, TDur, OutStr, ImgPath: string;
+  I: Integer;
+begin
+  Result := False;
   TName := AwwwTransitionName(Transition);
   TDur := FormatTransitionSec(TransitionMs);
+  Outputs := TStringList.Create;
+  try
+    if ImagePaths.Count > 1 then
+      QueryAwwwOutputs(ExePath, Outputs);
 
+    if Outputs.Count > 1 then
+    begin
+      Result := True;
+      for I := 0 to Outputs.Count - 1 do
+      begin
+        ImgPath := ImagePaths[I mod ImagePaths.Count];
+        if Transition = wtNone then
+        begin
+          if not ExecCmd(ExePath, ['img', '-o', Outputs[I], ImgPath, '--transition-type', 'none'], OutStr) then
+            Result := False;
+        end
+        else
+        begin
+          if not ExecCmd(ExePath, ['img', '-o', Outputs[I], ImgPath, '--transition-type', TName,
+            '--transition-duration', TDur], OutStr) then
+            Result := False;
+        end;
+      end;
+      CmdLog := Format('%s img -o <each monitor> (%d outputs)', [ExtractFileName(ExePath), Outputs.Count]);
+      Msg := OutStr;
+      Exit;
+    end;
+
+    ImgPath := ImagePaths[0];
+    if Transition = wtNone then
+    begin
+      CmdLog := ExtractFileName(ExePath) + ' img ' + ImgPath + ' --transition-type none';
+      Result := ExecCmd(ExePath, ['img', ImgPath, '--transition-type', 'none'], OutStr);
+    end
+    else
+    begin
+      CmdLog := Format('%s img %s --transition-type %s --transition-duration %s',
+        [ExtractFileName(ExePath), ImgPath, TName, TDur]);
+      Result := ExecCmd(ExePath, ['img', ImgPath, '--transition-type', TName,
+        '--transition-duration', TDur], OutStr);
+    end;
+    Msg := OutStr;
+  finally
+    Outputs.Free;
+  end;
+end;
+
+function ApplyAwwwMulti(const ImagePaths: TStrings; Transition: TWallpaperTransition;
+  TransitionMs: Integer; out CmdLog, Msg: string): Boolean;
+var
+  Awww, Swww, OutStr: string;
+begin
   Awww := FindExe('awww');
   if Awww <> '' then
   begin
-    // Start awww-daemon if not already running
     if not ExecCmd(Awww, ['query'], OutStr) then
     begin
       if FindExe('awww-daemon') <> '' then
@@ -323,36 +552,14 @@ begin
         Sleep(250);
       end;
     end;
-
-    if Transition = wtNone then
-    begin
-      CmdLog := 'awww img ' + ImagePath + ' --transition-type none';
-      Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', 'none'], OutStr);
-    end
-    else
-    begin
-      CmdLog := Format('awww img %s --transition-type %s --transition-duration %s', [ImagePath, TName, TDur]);
-      Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', TName, '--transition-duration', TDur], OutStr);
-    end;
-    Msg := OutStr;
+    Result := RunAwwwMulti(Awww, ImagePaths, Transition, TransitionMs, CmdLog, Msg);
     Exit;
   end;
 
-  // Fallback to swww if user has swww installed instead of awww
   Swww := FindExe('swww');
   if Swww <> '' then
   begin
-    if Transition = wtNone then
-    begin
-      CmdLog := 'swww img ' + ImagePath + ' --transition-type none';
-      Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', 'none'], OutStr);
-    end
-    else
-    begin
-      CmdLog := Format('swww img %s --transition-type %s --transition-duration %s', [ImagePath, TName, TDur]);
-      Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', TName, '--transition-duration', TDur], OutStr);
-    end;
-    Msg := OutStr;
+    Result := RunAwwwMulti(Swww, ImagePaths, Transition, TransitionMs, CmdLog, Msg);
     Exit;
   end;
 
@@ -361,46 +568,38 @@ begin
   Result := False;
 end;
 
-function ApplyHyprland(const ImagePath: string; Transition: TWallpaperTransition;
+function ApplyAwww(const ImagePath: string; Transition: TWallpaperTransition;
   TransitionMs: Integer; out CmdLog, Msg: string): Boolean;
 var
-  HyprCtl, Awww, Swww, OutStr, TName, TDur: string;
+  SL: TStringList;
 begin
-  TName := AwwwTransitionName(Transition);
-  TDur := FormatTransitionSec(TransitionMs);
+  SL := TStringList.Create;
+  try
+    SL.Add(ImagePath);
+    Result := ApplyAwwwMulti(SL, Transition, TransitionMs, CmdLog, Msg);
+  finally
+    SL.Free;
+  end;
+end;
 
-  // Prefer awww or swww if daemon is active, else hyprctl hyprpaper
+function ApplyHyprlandMulti(const ImagePaths: TStrings; Transition: TWallpaperTransition;
+  TransitionMs: Integer; out CmdLog, Msg: string): Boolean;
+var
+  HyprCtl, Awww, Swww, OutStr, ImgPath: string;
+  Outputs: TStringList;
+  I: Integer;
+begin
   Awww := FindExe('awww');
   if (Awww <> '') and ExecCmd(Awww, ['query'], OutStr) then
   begin
-    if Transition = wtNone then
-    begin
-      CmdLog := 'awww img ' + ImagePath + ' --transition-type none';
-      Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', 'none'], OutStr);
-    end
-    else
-    begin
-      CmdLog := Format('awww img %s --transition-type %s --transition-duration %s', [ImagePath, TName, TDur]);
-      Result := ExecCmd(Awww, ['img', ImagePath, '--transition-type', TName, '--transition-duration', TDur], OutStr);
-    end;
-    Msg := OutStr;
+    Result := RunAwwwMulti(Awww, ImagePaths, Transition, TransitionMs, CmdLog, Msg);
     Exit;
   end;
 
   Swww := FindExe('swww');
   if (Swww <> '') and ExecCmd(Swww, ['query'], OutStr) then
   begin
-    if Transition = wtNone then
-    begin
-      CmdLog := 'swww img ' + ImagePath + ' --transition-type none';
-      Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', 'none'], OutStr);
-    end
-    else
-    begin
-      CmdLog := Format('swww img %s --transition-type %s --transition-duration %s', [ImagePath, TName, TDur]);
-      Result := ExecCmd(Swww, ['img', ImagePath, '--transition-type', TName, '--transition-duration', TDur], OutStr);
-    end;
-    Msg := OutStr;
+    Result := RunAwwwMulti(Swww, ImagePaths, Transition, TransitionMs, CmdLog, Msg);
     Exit;
   end;
 
@@ -412,25 +611,65 @@ begin
     Exit(False);
   end;
 
-  ExecCmd(HyprCtl, ['hyprpaper', 'preload', ImagePath], OutStr);
-  CmdLog := 'hyprctl hyprpaper wallpaper ,' + ImagePath;
-  Result := ExecCmd(HyprCtl, ['hyprpaper', 'wallpaper', ',' + ImagePath], OutStr);
-  ExecCmd(HyprCtl, ['hyprpaper', 'unload', 'unused'], OutStr);
-  Msg := OutStr;
+  Outputs := TStringList.Create;
+  try
+    if ImagePaths.Count > 1 then
+      QueryHyprOutputs(HyprCtl, Outputs);
+
+    if Outputs.Count > 1 then
+    begin
+      Result := True;
+      for I := 0 to Outputs.Count - 1 do
+      begin
+        ImgPath := ImagePaths[I mod ImagePaths.Count];
+        ExecCmd(HyprCtl, ['hyprpaper', 'preload', ImgPath], OutStr);
+        if not ExecCmd(HyprCtl, ['hyprpaper', 'wallpaper', Outputs[I] + ',' + ImgPath], OutStr) then
+          Result := False;
+      end;
+      ExecCmd(HyprCtl, ['hyprpaper', 'unload', 'unused'], OutStr);
+      CmdLog := Format('hyprctl hyprpaper per monitor (%d outputs)', [Outputs.Count]);
+      Msg := OutStr;
+      Exit;
+    end;
+
+    ImgPath := ImagePaths[0];
+    ExecCmd(HyprCtl, ['hyprpaper', 'preload', ImgPath], OutStr);
+    CmdLog := 'hyprctl hyprpaper wallpaper ,' + ImgPath;
+    Result := ExecCmd(HyprCtl, ['hyprpaper', 'wallpaper', ',' + ImgPath], OutStr);
+    ExecCmd(HyprCtl, ['hyprpaper', 'unload', 'unused'], OutStr);
+    Msg := OutStr;
+  finally
+    Outputs.Free;
+  end;
+end;
+
+function ApplyHyprland(const ImagePath: string; Transition: TWallpaperTransition;
+  TransitionMs: Integer; out CmdLog, Msg: string): Boolean;
+var
+  SL: TStringList;
+begin
+  SL := TStringList.Create;
+  try
+    SL.Add(ImagePath);
+    Result := ApplyHyprlandMulti(SL, Transition, TransitionMs, CmdLog, Msg);
+  finally
+    SL.Free;
+  end;
 end;
 {$ENDIF}
 
 function ApplySystemWallpaper(const ImagePath: string;
   Mode: TLinuxBackendMode; Transition: TWallpaperTransition;
-  TransitionMs: Integer): TBackendResult;
+  TransitionMs: Integer; MultiMode: TMultiMonitorMode): TBackendResult;
 {$IFDEF WINDOWS}
 var
   Reg: TRegistry;
   WPath: UnicodeString;
+  StyleVal: string;
 {$ENDIF}
 {$IFDEF UNIX}
 var
-  Exe, OutStr, Detected: string;
+  Exe, OutStr, PicOpt: string;
   TargetMode: TLinuxBackendMode;
 {$ENDIF}
 begin
@@ -446,12 +685,17 @@ begin
   end;
 
   {$IFDEF WINDOWS}
+  if (MultiMode in [mmIndependent, mmSpan]) and (GetSystemMetrics(SM_CMONITORS) > 1) then
+    StyleVal := '22' // Span across monitors
+  else
+    StyleVal := '10'; // Fill
+
   Reg := TRegistry.Create(KEY_WRITE);
   try
     Reg.RootKey := HKEY_CURRENT_USER;
     if Reg.OpenKey('Control Panel\Desktop', True) then
     begin
-      Reg.WriteString('WallpaperStyle', '10'); // Fill
+      Reg.WriteString('WallpaperStyle', StyleVal);
       Reg.WriteString('TileWallpaper', '0');
       Reg.CloseKey;
     end;
@@ -474,24 +718,11 @@ begin
   {$ENDIF}
 
   {$IFDEF UNIX}
-  TargetMode := Mode;
-  if TargetMode = lbAuto then
-  begin
-    Detected := UpperCase(Result.BackendName);
-    if Pos('HYPRLAND', Detected) > 0 then TargetMode := lbHyprland
-    else if Pos('SWAY', Detected) > 0 then TargetMode := lbSway
-    else if Pos('NIRI', Detected) > 0 then TargetMode := lbNiri
-    else if Pos('UMBRIEL', Detected) > 0 then TargetMode := lbUmbriel
-    else if Pos('GNOME', Detected) > 0 then TargetMode := lbGnome
-    else if Pos('CINNAMON', Detected) > 0 then TargetMode := lbCinnamon
-    else if Pos('MATE', Detected) > 0 then TargetMode := lbMate
-    else if Pos('KDE', Detected) > 0 then TargetMode := lbKDE
-    else if Pos('XFCE', Detected) > 0 then TargetMode := lbXFCE
-    else if Pos('AWWW', Detected) > 0 then TargetMode := lbAwww
-    else if Pos('SWWW', Detected) > 0 then TargetMode := lbSwww
-    else if Pos('NITROGEN', Detected) > 0 then TargetMode := lbNitrogen
-    else TargetMode := lbFeh;
-  end;
+  TargetMode := ResolveEffectiveLinuxMode(Mode);
+  if MultiMode in [mmIndependent, mmSpan] then
+    PicOpt := 'spanned'
+  else
+    PicOpt := 'zoom';
 
   case TargetMode of
     lbGnome:
@@ -500,7 +731,7 @@ begin
         Result.CommandExecuted := 'gsettings set org.gnome.desktop.background picture-uri file://' + ImagePath;
         Result.Success := ExecCmd(Exe, ['set', 'org.gnome.desktop.background', 'picture-uri', 'file://' + ImagePath], OutStr) and
           ExecCmd(Exe, ['set', 'org.gnome.desktop.background', 'picture-uri-dark', 'file://' + ImagePath], OutStr);
-        ExecCmd(Exe, ['set', 'org.gnome.desktop.background', 'picture-options', 'zoom'], OutStr);
+        ExecCmd(Exe, ['set', 'org.gnome.desktop.background', 'picture-options', PicOpt], OutStr);
         Result.Message := OutStr;
       end;
     lbCinnamon:
@@ -508,6 +739,7 @@ begin
         Exe := FindExe('gsettings');
         Result.CommandExecuted := 'gsettings set org.cinnamon.desktop.background picture-uri file://' + ImagePath;
         Result.Success := ExecCmd(Exe, ['set', 'org.cinnamon.desktop.background', 'picture-uri', 'file://' + ImagePath], OutStr);
+        ExecCmd(Exe, ['set', 'org.cinnamon.desktop.background', 'picture-options', PicOpt], OutStr);
         Result.Message := OutStr;
       end;
     lbMate:
@@ -566,6 +798,246 @@ begin
   end;
   {$ENDIF}
 end;
+
+function ApplySystemMultiMonitorWallpapers(const ImagePaths: TStrings;
+  Mode: TLinuxBackendMode; MultiMode: TMultiMonitorMode;
+  Transition: TWallpaperTransition; TransitionMs: Integer): TBackendResult;
+{$IFDEF UNIX}
+var
+  Exe, OutStr: string;
+  TargetMode: TLinuxBackendMode;
+  Outputs: TStringList;
+  FehArgs: array of string;
+  I: Integer;
+{$ENDIF}
+begin
+  Result.Success := False;
+  Result.BackendName := DetectDesktopEnvironment(Mode);
+  Result.CommandExecuted := '';
+  Result.Message := '';
+
+  if (ImagePaths = nil) or (ImagePaths.Count = 0) then
+  begin
+    Result.Message := 'No image paths supplied.';
+    Exit;
+  end;
+
+  if ImagePaths.Count = 1 then
+  begin
+    Result := ApplySystemWallpaper(ImagePaths[0], Mode, Transition, TransitionMs, MultiMode);
+    Exit;
+  end;
+
+  {$IFDEF WINDOWS}
+  Result := ApplySystemWallpaper(ImagePaths[0], Mode, Transition, TransitionMs, MultiMode);
+  {$ENDIF}
+
+  {$IFDEF UNIX}
+  TargetMode := ResolveEffectiveLinuxMode(Mode);
+  case TargetMode of
+    lbKDE:
+      Result.Success := ApplyKDEMulti(ImagePaths, Result.CommandExecuted, Result.Message);
+    lbXFCE:
+      Result.Success := ApplyXFCEMulti(ImagePaths, Result.CommandExecuted, Result.Message);
+    lbHyprland:
+      Result.Success := ApplyHyprlandMulti(ImagePaths, Transition, TransitionMs, Result.CommandExecuted, Result.Message);
+    lbSway:
+      begin
+        Exe := FindExe('swaymsg');
+        Outputs := TStringList.Create;
+        try
+          QuerySwayOutputs(Exe, Outputs);
+          if Outputs.Count > 1 then
+          begin
+            Result.Success := True;
+            for I := 0 to Outputs.Count - 1 do
+              if not ExecCmd(Exe, ['output', Outputs[I], 'bg',
+                ImagePaths[I mod ImagePaths.Count], 'fill'], OutStr) then
+                Result.Success := False;
+            Result.CommandExecuted := Format('swaymsg output <each> (%d outputs)', [Outputs.Count]);
+            Result.Message := OutStr;
+          end
+          else
+            Result := ApplySystemWallpaper(ImagePaths[0], Mode, Transition, TransitionMs, MultiMode);
+        finally
+          Outputs.Free;
+        end;
+      end;
+    lbNiri, lbUmbriel, lbAwww:
+      Result.Success := ApplyAwwwMulti(ImagePaths, Transition, TransitionMs, Result.CommandExecuted, Result.Message);
+    lbSwww:
+      begin
+        Exe := FindExe('swww');
+        if Exe <> '' then
+          Result.Success := RunAwwwMulti(Exe, ImagePaths, Transition, TransitionMs,
+            Result.CommandExecuted, Result.Message)
+        else
+          Result.Message := 'swww not found in PATH';
+      end;
+    lbFeh:
+      begin
+        Exe := FindExe('feh');
+        SetLength(FehArgs, ImagePaths.Count + 1);
+        FehArgs[0] := '--bg-fill';
+        for I := 0 to ImagePaths.Count - 1 do
+          FehArgs[I + 1] := ImagePaths[I];
+        Result.CommandExecuted := Format('feh --bg-fill (%d files)', [ImagePaths.Count]);
+        Result.Success := ExecCmd(Exe, FehArgs, OutStr);
+        Result.Message := OutStr;
+      end;
+  else
+    Result := ApplySystemWallpaper(ImagePaths[0], Mode, Transition, TransitionMs, MultiMode);
+  end;
+  {$ENDIF}
+end;
+
+function IsFullscreenAppActive: Boolean;
+{$IFDEF WINDOWS}
+var
+  FG: HWND;
+  FgPid: DWORD;
+  ClassBuf: array[0..255] of WideChar;
+  ClsName: string;
+  WinRect: TRect;
+  HMon: HMONITOR;
+  MonInfo: TMonitorInfo;
+begin
+  Result := False;
+  FG := GetForegroundWindow;
+  if (FG = 0) or (not IsWindowVisible(FG)) or IsIconic(FG) then Exit;
+  if FG = GetDesktopWindow then Exit;
+
+  FgPid := 0;
+  GetWindowThreadProcessId(FG, @FgPid);
+  if FgPid = GetCurrentProcessId then Exit;
+
+  FillChar(ClassBuf, SizeOf(ClassBuf), 0);
+  if GetClassNameW(FG, @ClassBuf[0], 255) > 0 then
+  begin
+    ClsName := string(UnicodeString(PWideChar(@ClassBuf[0])));
+    if SameText(ClsName, 'Progman') or SameText(ClsName, 'WorkerW') or
+       SameText(ClsName, 'Shell_TrayWnd') or SameText(ClsName, 'Shell_SecondaryTrayWnd') or
+       SameText(ClsName, 'Windows.UI.Core.CoreWindow') then
+      Exit;
+  end;
+
+  if not GetWindowRect(FG, WinRect) then Exit;
+  HMon := MonitorFromWindow(FG, MONITOR_DEFAULTTONEAREST);
+  if HMon = 0 then Exit;
+
+  FillChar(MonInfo, SizeOf(MonInfo), 0);
+  MonInfo.cbSize := SizeOf(MonInfo);
+  if not GetMonitorInfoW(HMon, @MonInfo) then Exit;
+
+  Result := (WinRect.Left <= MonInfo.rcMonitor.Left) and
+            (WinRect.Top <= MonInfo.rcMonitor.Top) and
+            (WinRect.Right >= MonInfo.rcMonitor.Right) and
+            (WinRect.Bottom >= MonInfo.rcMonitor.Bottom);
+end;
+{$ENDIF}
+{$IFDEF UNIX}
+var
+  Exe, OutStr, WinId: string;
+  P, Q: Integer;
+begin
+  Result := False;
+
+  if GetEnvironmentVariable('HYPRLAND_INSTANCE_SIGNATURE') <> '' then
+  begin
+    Exe := FindExe('hyprctl');
+    if (Exe <> '') and ExecCmd(Exe, ['activewindow', '-j'], OutStr) then
+    begin
+      if (Pos('"fullscreen": 1', OutStr) > 0) or (Pos('"fullscreen": 2', OutStr) > 0) or
+         (Pos('"fullscreen":1', OutStr) > 0) or (Pos('"fullscreen":2', OutStr) > 0) or
+         (Pos('"fullscreen": true', OutStr) > 0) or (Pos('"fullscreen":true', OutStr) > 0) then
+        Exit(True);
+    end;
+    Exit(False);
+  end;
+
+  if GetEnvironmentVariable('SWAYSOCK') <> '' then
+  begin
+    Exe := FindExe('swaymsg');
+    if (Exe <> '') and ExecCmd(Exe, ['-t', 'get_tree'], OutStr) then
+    begin
+      if (Pos('"fullscreen_mode": 1', OutStr) > 0) or (Pos('"fullscreen_mode":1', OutStr) > 0) then
+        Exit(True);
+    end;
+    Exit(False);
+  end;
+
+  if (GetEnvironmentVariable('DISPLAY') <> '') and (GetEnvironmentVariable('WAYLAND_DISPLAY') = '') then
+  begin
+    Exe := FindExe('xprop');
+    if (Exe <> '') and ExecCmd(Exe, ['-root', '_NET_ACTIVE_WINDOW'], OutStr) then
+    begin
+      P := Pos('0x', OutStr);
+      if P > 0 then
+      begin
+        WinId := Trim(Copy(OutStr, P, 32));
+        Q := Pos(',', WinId);
+        if Q > 0 then WinId := Trim(Copy(WinId, 1, Q - 1));
+        if (WinId <> '') and (WinId <> '0x0') and
+           ExecCmd(Exe, ['-id', WinId, '_NET_WM_STATE'], OutStr) then
+        begin
+          if Pos('_NET_WM_STATE_FULLSCREEN', OutStr) > 0 then
+            Exit(True);
+        end;
+      end;
+    end;
+  end;
+end;
+{$ENDIF}
+
+function IsRunningOnBattery: Boolean;
+{$IFDEF WINDOWS}
+var
+  PS: TSystemPowerStatus;
+begin
+  Result := False;
+  FillChar(PS, SizeOf(PS), 0);
+  if GetSystemPowerStatus(PS) then
+    Result := (PS.ACLineStatus = 0);
+end;
+{$ENDIF}
+{$IFDEF UNIX}
+var
+  SR: TSearchRec;
+  StatusFile, Line: string;
+  SL: TStringList;
+begin
+  Result := False;
+  if FindFirst('/sys/class/power_supply/BAT*', faDirectory, SR) = 0 then
+  begin
+    try
+      repeat
+        if (SR.Name = '.') or (SR.Name = '..') then Continue;
+        StatusFile := '/sys/class/power_supply/' + SR.Name + '/status';
+        if FileExists(StatusFile) then
+        begin
+          SL := TStringList.Create;
+          try
+            try
+              SL.LoadFromFile(StatusFile);
+              if SL.Count > 0 then
+              begin
+                Line := LowerCase(Trim(SL[0]));
+                if Line = 'discharging' then
+                  Exit(True);
+              end;
+            except
+            end;
+          finally
+            SL.Free;
+          end;
+        end;
+      until FindNext(SR) <> 0;
+    finally
+      FindClose(SR);
+    end;
+  end;
+end;
+{$ENDIF}
 
 {$IFDEF UNIX}
 function GetXdgAutostartFilePath: string;

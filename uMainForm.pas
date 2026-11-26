@@ -39,6 +39,10 @@ type
     ChkPurNSFW: TCheckBox;
     LblMaxPages: TLabel;
     SpinMaxPages: TSpinEdit;
+    LblMinRes: TLabel;
+    ComboMinRes: TComboBox;
+    LblRatio: TLabel;
+    ComboRatio: TComboBox;
     LblApiKey: TLabel;
     EditApiKey: TEdit;
     LblMaxCached: TLabel;
@@ -56,16 +60,20 @@ type
 
     ChkSubfolders: TCheckBox;
     ChkShuffle: TCheckBox;
+    ChkDailyRecheck: TCheckBox;
     LblInterval: TLabel;
     SpinIntervalMin: TSpinEdit;
     LblTransition: TLabel;
     ComboTransition: TComboBox;
     LblTransitionDur: TLabel;
     SpinTransitionMs: TSpinEdit;
-    ChkDailyRecheck: TCheckBox;
+    LblMultiMonitor: TLabel;
+    ComboMultiMonitor: TComboBox;
     BtnPrevWallpaper: TButton;
     BtnPauseResume: TButton;
     BtnNextWallpaper: TButton;
+    BtnFavorite: TButton;
+    BtnBlacklist: TButton;
     BtnOpenWallHavenPage: TButton;
     LblCurrentFile: TLabel;
 
@@ -100,6 +108,10 @@ type
     ComboBackend: TComboBox;
     ChkStartMinimized: TCheckBox;
     ChkAutoStart: TCheckBox;
+    ChkSmartPauseFullscreen: TCheckBox;
+    ChkSmartPauseBattery: TCheckBox;
+    BtnOpenFavorites: TButton;
+    BtnClearBlacklist: TButton;
     BtnSavePrefs: TButton;
     MemoLog: TMemo;
 
@@ -111,8 +123,11 @@ type
     MnuNext: TMenuItem;
     MnuPrev: TMenuItem;
     MnuPause: TMenuItem;
+    MnuFavorite: TMenuItem;
+    MnuBlacklist: TMenuItem;
     MnuFetchWH: TMenuItem;
     MnuOpenWallHavenPage: TMenuItem;
+    MnuOpenFavorites: TMenuItem;
     MnuShowPrefs: TMenuItem;
     MnuExit: TMenuItem;
     TickTimer: TTimer;
@@ -121,6 +136,7 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+    procedure CheckListSourcesClick(Sender: TObject);
     procedure CheckListSourcesClickCheck(Sender: TObject);
     procedure BtnAddFolderClick(Sender: TObject);
     procedure BtnAddWallHavenClick(Sender: TObject);
@@ -129,6 +145,10 @@ type
     procedure BtnPrevWallpaperClick(Sender: TObject);
     procedure BtnPauseResumeClick(Sender: TObject);
     procedure BtnNextWallpaperClick(Sender: TObject);
+    procedure BtnFavoriteClick(Sender: TObject);
+    procedure BtnBlacklistClick(Sender: TObject);
+    procedure BtnOpenFavoritesClick(Sender: TObject);
+    procedure BtnClearBlacklistClick(Sender: TObject);
     procedure BtnApplyOverlayNowClick(Sender: TObject);
     procedure ChkOverlayTransparentBgChange(Sender: TObject);
     procedure ComboFontDrawItem(Control: TWinControl; Index: Integer;
@@ -155,6 +175,9 @@ type
     FScanThread: TPlaylistScanThread;
     FFetchThread: TWallHavenFetchThread;
     FPlaylist: TStringList;
+    FHistory: TStringList;
+    FHistoryPos: Integer;
+    FMonitorImages: TStringList;
     FCurrentIndex: Integer;
     FCurrentSourceImage: string;
     FToggleSlot: Integer;
@@ -162,6 +185,9 @@ type
     FLastTickTime: TDateTime;
     FLastMinuteRendered: Word;
     FPaused: Boolean;
+    FSmartPaused: Boolean;
+    FSmartPauseReason: string;
+    FLastSmartCheckTime: TDateTime;
     FAllowClose: Boolean;
     FAutoSelectOnReady: Boolean;
     FLoadingUI: Boolean;
@@ -180,17 +206,31 @@ type
     procedure StartWallHavenFetch(SelectFirstOnReady, IsDailyAuto: Boolean);
     procedure PollWallHavenFetch;
     procedure CheckDailySourceRecheck(ForceStartupCheck: Boolean = False);
+    procedure CheckSmartPause;
     procedure ScheduleNextTick;
-    procedure AdvanceWallpaper(Step: Integer);
+    function IsCandidateEligible(const Candidate: string; out Stats: TLuminanceStats): Boolean;
+    procedure PickDistinctMonitorImages(const PrimaryPath: string; TargetList: TStrings);
+    procedure RecordHistory(const FilePath: string);
+    procedure NavigatePrevious;
+    procedure AdvanceWallpaper(Step: Integer; AddToHistory: Boolean = True);
     procedure ApplyCurrentImageWithOverlay;
-    procedure ApplyWallpaperWithTransition(const PrevSourceImage: string);
+    procedure ApplyWallpaperWithTransition(const PrevSourceImage: string;
+      PrevMonList: TStrings);
+    procedure SaveCurrentFavorite;
+    procedure BlacklistCurrentWallpaper;
+    procedure UpdateBlacklistButton;
+    procedure UpdateCurrentStatusUI;
     procedure UpdateLuminanceLabels;
     procedure PopulateSystemFonts;
     procedure SelectFontInCombo(CB: TComboBox; const FontName: string);
     function GetSelectedFontName(CB: TComboBox; const Fallback: string): string;
     function GetWallHavenCategoriesStr: string;
     function GetWallHavenPurityStr: string;
-    function ExtractWallHavenId(const FilePath: string; out WhId: string): Boolean;
+    function ResolveScreenMinRes: string;
+    procedure SelectMinResInUI(const Val: string);
+    function GetMinResFromUI: string;
+    procedure SelectRatioInUI(const Val: string);
+    function GetRatioFromUI: string;
     procedure UpdateWallHavenInfoActions;
     procedure OpenCurrentWallHavenPage;
     procedure SetPausedState(APaused: Boolean);
@@ -263,6 +303,102 @@ begin
     Result := Fallback;
 end;
 
+procedure TMainForm.SelectMinResInUI(const Val: string);
+var
+  LowVal: string;
+  I: Integer;
+begin
+  LowVal := LowerCase(Trim(Val));
+  if (LowVal = '') or (LowVal = 'any') then
+  begin
+    ComboMinRes.ItemIndex := 1;
+    Exit;
+  end;
+  if LowVal = 'auto' then
+  begin
+    ComboMinRes.ItemIndex := 0;
+    Exit;
+  end;
+  for I := 2 to ComboMinRes.Items.Count - 1 do
+  begin
+    if SameText(ComboMinRes.Items[I], LowVal) then
+    begin
+      ComboMinRes.ItemIndex := I;
+      Exit;
+    end;
+  end;
+  ComboMinRes.ItemIndex := 0;
+end;
+
+function TMainForm.GetMinResFromUI: string;
+begin
+  if ComboMinRes.ItemIndex <= 0 then
+    Result := 'auto'
+  else if ComboMinRes.ItemIndex = 1 then
+    Result := 'any'
+  else
+    Result := ComboMinRes.Items[ComboMinRes.ItemIndex];
+end;
+
+procedure TMainForm.SelectRatioInUI(const Val: string);
+var
+  LowVal: string;
+  I: Integer;
+begin
+  LowVal := LowerCase(Trim(Val));
+  if (LowVal = '') or (LowVal = 'any') then
+  begin
+    ComboRatio.ItemIndex := 0;
+    Exit;
+  end;
+  for I := 1 to ComboRatio.Items.Count - 1 do
+  begin
+    if SameText(ComboRatio.Items[I], LowVal) then
+    begin
+      ComboRatio.ItemIndex := I;
+      Exit;
+    end;
+  end;
+  ComboRatio.ItemIndex := 0;
+end;
+
+function TMainForm.GetRatioFromUI: string;
+begin
+  if ComboRatio.ItemIndex <= 0 then
+    Result := ''
+  else
+    Result := ComboRatio.Items[ComboRatio.ItemIndex];
+end;
+
+function TMainForm.ResolveScreenMinRes: string;
+var
+  W, H: Integer;
+begin
+  if SameText(FConfig.WallHavenAtLeast, 'any') then Exit('');
+  if not SameText(FConfig.WallHavenAtLeast, 'auto') then
+    Exit(FConfig.WallHavenAtLeast);
+
+  W := 0;
+  H := 0;
+  if Assigned(Screen) then
+  begin
+    if Assigned(Screen.PrimaryMonitor) then
+    begin
+      W := Screen.PrimaryMonitor.Width;
+      H := Screen.PrimaryMonitor.Height;
+    end;
+    if (W <= 0) or (H <= 0) then
+    begin
+      W := Screen.Width;
+      H := Screen.Height;
+    end;
+  end;
+  if (W >= 800) and (H >= 600) then
+    Result := Format('%dx%d', [W, H])
+  else
+    Result := '1920x1080';
+end;
+
 procedure TMainForm.FormCreate(Sender: TObject);
 var
   CacheFile: string;
@@ -279,12 +415,18 @@ begin
   FScanThread := nil;
   FFetchThread := nil;
   FPlaylist := TStringList.Create;
+  FHistory := TStringList.Create;
+  FHistoryPos := -1;
+  FMonitorImages := TStringList.Create;
   FCurrentIndex := -1;
   FToggleSlot := 0;
   FRemainingSeconds := FConfig.IntervalMinutes * 60;
   FLastTickTime := Now;
   FLastMinuteRendered := 99;
   FPaused := False;
+  FSmartPaused := False;
+  FSmartPauseReason := '';
+  FLastSmartCheckTime := 0;
   FAllowClose := False;
   FAutoSelectOnReady := False;
   FLoadingUI := False;
@@ -300,6 +442,7 @@ begin
   TrayIcon1.Hint := 'WallCycle — Click: next wallpaper';
   TrayIcon1.Visible := True;
   UpdateWallHavenInfoActions;
+  UpdateBlacklistButton;
 
   StartAsyncScan(True);
 
@@ -323,6 +466,8 @@ begin
   TickTimer.Enabled := False;
   StopWallHavenFetch;
   StopAsyncScan;
+  FMonitorImages.Free;
+  FHistory.Free;
   FPlaylist.Free;
   FLuminanceCache.Free;
   FConfig.Free;
@@ -364,6 +509,46 @@ begin
   end;
 end;
 
+procedure TMainForm.UpdateBlacklistButton;
+begin
+  BtnClearBlacklist.Caption := Format('Clear Blacklist (%d)', [FConfig.BlacklistedItems.Count]);
+  BtnClearBlacklist.Enabled := FConfig.BlacklistedItems.Count > 0;
+end;
+
+procedure TMainForm.UpdateCurrentStatusUI;
+var
+  BaseLabel, TooltipText: string;
+begin
+  if (FCurrentSourceImage = '') then
+    BaseLabel := 'Active wallpaper: none'
+  else if (FMonitorImages.Count > 1) and (FConfig.MultiMonitorMode = mmIndependent) then
+    BaseLabel := Format('Active (%d monitors): %s', [FMonitorImages.Count, ExtractFileName(FCurrentSourceImage)])
+  else
+    BaseLabel := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage);
+
+  if FPaused then
+    BaseLabel := BaseLabel + '  [Paused]'
+  else if FSmartPaused then
+    BaseLabel := BaseLabel + '  [Smart Pause: ' + FSmartPauseReason + ']';
+
+  LblCurrentFile.Caption := BaseLabel;
+
+  if FCurrentSourceImage <> '' then
+    TooltipText := 'WallCycle — ' + ExtractFileName(FCurrentSourceImage)
+  else
+    TooltipText := 'WallCycle — Click: next wallpaper';
+
+  if FPaused then
+    TooltipText := TooltipText + ' [Paused]'
+  else if FSmartPaused then
+    TooltipText := TooltipText + ' [Smart Pause]';
+
+  // Keep under Windows NOTIFYICONDATA 128-char szTip limit
+  if Length(TooltipText) > 120 then
+    TooltipText := Copy(TooltipText, 1, 117) + '...';
+  TrayIcon1.Hint := TooltipText;
+end;
+
 procedure TMainForm.ConfigToUI;
 begin
   FLoadingUI := True;
@@ -375,10 +560,13 @@ begin
     ComboTransition.ItemIndex := Ord(FConfig.TransitionStyle);
     SpinTransitionMs.Value := EnsureRange(FConfig.TransitionDurationMs,
       SpinTransitionMs.MinValue, SpinTransitionMs.MaxValue);
+    ComboMultiMonitor.ItemIndex := Ord(FConfig.MultiMonitorMode);
     ChkDailyRecheck.Checked := FConfig.DailySourceRecheck;
 
     EditApiKey.Text := FConfig.WallHavenApiKey;
     if ComboSorting.Items.Count > 0 then ComboSorting.ItemIndex := 0;
+    SelectMinResInUI(FConfig.WallHavenAtLeast);
+    SelectRatioInUI(FConfig.WallHavenRatio);
     ChkCatGeneral.Checked := (Length(FConfig.WallHavenCategories) < 1) or (FConfig.WallHavenCategories[1] = '1');
     ChkCatAnime.Checked := (Length(FConfig.WallHavenCategories) >= 2) and (FConfig.WallHavenCategories[2] = '1');
     ChkCatPeople.Checked := (Length(FConfig.WallHavenCategories) >= 3) and (FConfig.WallHavenCategories[3] = '1');
@@ -412,6 +600,9 @@ begin
     ComboBackend.ItemIndex := Ord(FConfig.LinuxBackend);
     ChkStartMinimized.Checked := FConfig.StartMinimized;
     ChkAutoStart.Checked := IsAutoStartEnabled or FConfig.AutoStart;
+    ChkSmartPauseFullscreen.Checked := FConfig.SmartPauseFullscreen;
+    ChkSmartPauseBattery.Checked := FConfig.SmartPauseOnBattery;
+    UpdateBlacklistButton;
     PaintBoxOverlayPreview.Invalidate;
   finally
     FLoadingUI := False;
@@ -449,9 +640,13 @@ begin
   if ComboTransition.ItemIndex >= 0 then
     FConfig.TransitionStyle := TWallpaperTransition(ComboTransition.ItemIndex);
   FConfig.TransitionDurationMs := SpinTransitionMs.Value;
+  if ComboMultiMonitor.ItemIndex >= 0 then
+    FConfig.MultiMonitorMode := TMultiMonitorMode(ComboMultiMonitor.ItemIndex);
   FConfig.DailySourceRecheck := ChkDailyRecheck.Checked;
 
   FConfig.WallHavenApiKey := Trim(EditApiKey.Text);
+  FConfig.WallHavenAtLeast := GetMinResFromUI;
+  FConfig.WallHavenRatio := GetRatioFromUI;
   FConfig.WallHavenCategories := GetWallHavenCategoriesStr;
   FConfig.WallHavenPurity := GetWallHavenPurityStr;
   FConfig.WallHavenMaxPages := SpinMaxPages.Value;
@@ -480,6 +675,8 @@ begin
     FConfig.LinuxBackend := TLinuxBackendMode(ComboBackend.ItemIndex);
   FConfig.StartMinimized := ChkStartMinimized.Checked;
   FConfig.AutoStart := ChkAutoStart.Checked;
+  FConfig.SmartPauseFullscreen := ChkSmartPauseFullscreen.Checked;
+  FConfig.SmartPauseOnBattery := ChkSmartPauseBattery.Checked;
 end;
 
 procedure TMainForm.UpdateLuminanceLabels;
@@ -508,10 +705,64 @@ begin
   end;
 end;
 
+procedure TMainForm.CheckSmartPause;
+var
+  ShouldPause: Boolean;
+  NewReason: string;
+begin
+  if (not FConfig.SmartPauseFullscreen) and (not FConfig.SmartPauseOnBattery) then
+  begin
+    if FSmartPaused then
+    begin
+      FSmartPaused := False;
+      FSmartPauseReason := '';
+      FLastTickTime := Now;
+      UpdateCurrentStatusUI;
+      LogMsg('Smart Pause disabled.');
+    end;
+    Exit;
+  end;
+
+  if (FLastSmartCheckTime > 0) and (((Now - FLastSmartCheckTime) * 86400.0) < 3.5) then
+    Exit;
+  FLastSmartCheckTime := Now;
+
+  ShouldPause := False;
+  NewReason := '';
+
+  if FConfig.SmartPauseFullscreen and IsFullscreenAppActive then
+  begin
+    ShouldPause := True;
+    NewReason := 'Fullscreen app/game';
+  end
+  else if FConfig.SmartPauseOnBattery and IsRunningOnBattery then
+  begin
+    ShouldPause := True;
+    NewReason := 'Battery power';
+  end;
+
+  if ShouldPause <> FSmartPaused then
+  begin
+    FSmartPaused := ShouldPause;
+    FSmartPauseReason := NewReason;
+    FLastTickTime := Now;
+    UpdateCurrentStatusUI;
+    if FSmartPaused then
+      LogMsg('Smart Pause engaged (' + FSmartPauseReason + ').')
+    else
+    begin
+      LogMsg('Smart Pause released — resuming slideshow & overlay.');
+      if (FCurrentSourceImage <> '') and FConfig.OverlayEnabled then
+        ApplyCurrentImageWithOverlay;
+    end;
+  end;
+end;
+
 procedure TMainForm.ScheduleNextTick;
 var
   H, M, S, MS: Word;
   MsToNextMinute, MsToNextSlide, NextInterval: Int64;
+  EffectivePaused: Boolean;
 begin
   TickTimer.Enabled := False;
 
@@ -522,36 +773,52 @@ begin
     Exit;
   end;
 
-  if FConfig.OverlayEnabled and FConfig.OverlayShowSeconds then
+  EffectivePaused := FPaused or FSmartPaused;
+
+  if FConfig.OverlayEnabled and FConfig.OverlayShowSeconds and (not FSmartPaused) then
   begin
     TickTimer.Interval := 1000;
     TickTimer.Enabled := True;
     Exit;
   end;
 
-  if not FConfig.OverlayEnabled then
+  if FSmartPaused and (FConfig.SmartPauseFullscreen or FConfig.SmartPauseOnBattery) then
   begin
-    if FPaused then Exit; // 0 wakeups while paused without clock overlay
+    // Lightweight poll every 4s to auto-resume immediately when exiting game or plugging AC power
+    TickTimer.Interval := 4000;
+    TickTimer.Enabled := True;
+    Exit;
+  end;
+
+  if (not FConfig.OverlayEnabled) or FSmartPaused then
+  begin
+    if EffectivePaused then Exit;
     MsToNextSlide := Int64(Max(1, FRemainingSeconds)) * 1000;
-    if MsToNextSlide > 3600000 then MsToNextSlide := 3600000;
+    if FConfig.SmartPauseFullscreen or FConfig.SmartPauseOnBattery then
+      MsToNextSlide := Min(MsToNextSlide, Int64(5000))
+    else if MsToNextSlide > 3600000 then
+      MsToNextSlide := 3600000;
     TickTimer.Interval := Integer(MsToNextSlide);
     TickTimer.Enabled := True;
     Exit;
   end;
 
-  // Align precisely to the :00 second boundary, then tick once per minute
+  // Align precisely to the :00 second boundary, then tick once per minute (or 5s when Smart Pause watches)
   DecodeTime(Now, H, M, S, MS);
   MsToNextMinute := (Int64(60 - S) * 1000) - Int64(MS) + 50;
   if MsToNextMinute < 250 then
     Inc(MsToNextMinute, 60000);
 
-  if not FPaused then
+  if not EffectivePaused then
   begin
     MsToNextSlide := Int64(Max(1, FRemainingSeconds)) * 1000;
     NextInterval := Min(MsToNextMinute, MsToNextSlide);
   end
   else
     NextInterval := MsToNextMinute;
+
+  if (FConfig.SmartPauseFullscreen or FConfig.SmartPauseOnBattery) and (NextInterval > 5000) then
+    NextInterval := 5000;
 
   if NextInterval < 250 then NextInterval := 250;
   TickTimer.Interval := Integer(NextInterval);
@@ -563,7 +830,6 @@ begin
   StopAsyncScan;
   FAutoSelectOnReady := SelectFirstOnReady;
   FScanThread := TPlaylistScanThread.Create(FConfig, FLuminanceCache);
-  // Poll briefly during initial async discovery (~150ms), then align to 1-minute boundary
   ScheduleNextTick;
   LogMsg('Background source scan started...');
 end;
@@ -588,7 +854,7 @@ begin
       if FAutoSelectOnReady and (FPlaylist.Count > 0) then
       begin
         FAutoSelectOnReady := False;
-        AdvanceWallpaper(1);
+        AdvanceWallpaper(1, True);
       end;
     end;
 
@@ -620,34 +886,153 @@ begin
   end;
 end;
 
+function TMainForm.IsCandidateEligible(const Candidate: string;
+  out Stats: TLuminanceStats): Boolean;
+begin
+  Result := False;
+  if (Trim(Candidate) = '') or (not FileExists(Candidate)) then Exit;
+  if FConfig.IsBlacklisted(Candidate) then Exit;
+
+  if FConfig.DarkFilterEnabled then
+  begin
+    if not IsImageDarkEnough(Candidate, FConfig.MaxLuminance,
+      FConfig.IconZoneMaxLuminance, FConfig.CheckIconZone, Stats, FLuminanceCache) then
+    begin
+      if not Stats.Valid then
+        LogMsg(Format('Skipped corrupted image (%s): %s',
+          [Stats.ErrorReason, ExtractFileName(Candidate)]))
+      else
+        LogMsg(Format('Skipped image too bright (Avg=%.0f%%, Icon=%.0f%%): %s',
+          [Stats.AverageLuminance * 100, Stats.IconZoneLuminance * 100, ExtractFileName(Candidate)]));
+      Exit;
+    end;
+  end
+  else
+  begin
+    if not FLuminanceCache.TryGet(Candidate, Stats) then
+    begin
+      Stats := AnalyzeImageLuminance(Candidate);
+      if Stats.Valid then FLuminanceCache.Put(Candidate, Stats);
+    end;
+    if not Stats.Valid then
+    begin
+      LogMsg(Format('Skipped corrupted image (%s): %s',
+        [Stats.ErrorReason, ExtractFileName(Candidate)]));
+      Exit;
+    end;
+  end;
+  Result := True;
+end;
+
+procedure TMainForm.PickDistinctMonitorImages(const PrimaryPath: string;
+  TargetList: TStrings);
+var
+  MonCount, NeedMore, StartIdx, I, TryIdx: Integer;
+  Cand: string;
+  Stats: TLuminanceStats;
+begin
+  TargetList.Clear;
+  if PrimaryPath = '' then Exit;
+  TargetList.Add(PrimaryPath);
+
+  MonCount := 1;
+  if Assigned(Screen) then
+    MonCount := Max(1, Screen.MonitorCount);
+
+  if (FConfig.MultiMonitorMode <> mmIndependent) or (MonCount <= 1) then
+    Exit;
+
+  NeedMore := MonCount - 1;
+  StartIdx := FPlaylist.IndexOf(PrimaryPath);
+  if StartIdx < 0 then StartIdx := 0;
+
+  for I := 1 to FPlaylist.Count do
+  begin
+    if TargetList.Count >= MonCount then Break;
+    if FConfig.ShuffleOrder then
+      TryIdx := Random(FPlaylist.Count)
+    else
+      TryIdx := (StartIdx + I) mod FPlaylist.Count;
+
+    Cand := FPlaylist[TryIdx];
+    if TargetList.IndexOf(Cand) >= 0 then Continue;
+    if IsCandidateEligible(Cand, Stats) then
+      TargetList.Add(Cand);
+  end;
+
+  // Fallback sequentially if random probe missed remaining distinct images
+  if TargetList.Count < MonCount then
+  begin
+    for I := 0 to FPlaylist.Count - 1 do
+    begin
+      if TargetList.Count >= MonCount then Break;
+      Cand := FPlaylist[I];
+      if TargetList.IndexOf(Cand) >= 0 then Continue;
+      if IsCandidateEligible(Cand, Stats) then
+        TargetList.Add(Cand);
+    end;
+  end;
+
+  while TargetList.Count < NeedMore + 1 do
+    TargetList.Add(PrimaryPath);
+end;
+
 procedure TMainForm.ApplyCurrentImageWithOverlay;
 var
-  RenderDir, RenderedPath: string;
+  RenderDir: string;
   Res: TBackendResult;
   H, M, S, MS: Word;
+  MonPaths: array of string;
+  OutPaths: TStringList;
+  I: Integer;
+  PerMonFiles: Boolean;
 begin
   if (FCurrentSourceImage = '') or (not FileExists(FCurrentSourceImage)) then Exit;
 
   DecodeTime(Now, H, M, S, MS);
   FLastMinuteRendered := M;
+  UpdateWallHavenInfoActions;
+
+  if FMonitorImages.Count = 0 then
+    FMonitorImages.Add(FCurrentSourceImage);
+
+  SetLength(MonPaths, FMonitorImages.Count);
+  for I := 0 to FMonitorImages.Count - 1 do
+    MonPaths[I] := FMonitorImages[I];
 
   RenderDir := IncludeTrailingPathDelimiter(GetAppConfigDir(False)) + 'rendered';
-  if not RenderWallpaperWithClock(FCurrentSourceImage, RenderDir, FConfig,
-    FToggleSlot, RenderedPath) then
+  PerMonFiles := (FConfig.MultiMonitorMode = mmIndependent) and
+                 Assigned(Screen) and (Screen.MonitorCount > 1) and
+                 BackendSupportsPerMonitorFiles(FConfig.LinuxBackend);
+
+  OutPaths := nil;
+  if not RenderMultiMonitorWallpapers(MonPaths, RenderDir, FConfig, PerMonFiles,
+    FToggleSlot, OutPaths) then
   begin
+    if OutPaths <> nil then OutPaths.Free;
     LogMsg('Overlay rendering error on: ' + FCurrentSourceImage);
     Exit;
   end;
 
-  UpdateWallHavenInfoActions;
-  Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend, wtNone, 0);
-  if Res.Success then
-    LblCurrentFile.Caption := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage)
-  else
-    LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
+  try
+    if OutPaths.Count > 1 then
+      Res := ApplySystemMultiMonitorWallpapers(OutPaths, FConfig.LinuxBackend,
+        FConfig.MultiMonitorMode, wtNone, 0)
+    else
+      Res := ApplySystemWallpaper(OutPaths[0], FConfig.LinuxBackend,
+        wtNone, 0, FConfig.MultiMonitorMode);
+
+    if Res.Success then
+      UpdateCurrentStatusUI
+    else
+      LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
+  finally
+    OutPaths.Free;
+  end;
 end;
 
-procedure TMainForm.ApplyWallpaperWithTransition(const PrevSourceImage: string);
+procedure TMainForm.ApplyWallpaperWithTransition(const PrevSourceImage: string;
+  PrevMonList: TStrings);
 var
   RenderDir, RenderedPath: string;
   Res: TBackendResult;
@@ -656,7 +1041,9 @@ var
   ActiveTrans: TWallpaperTransition;
   Steps, StepDelay, I, MyToken: Integer;
   Progress, Eased: Double;
-  UseFastBMP: Boolean;
+  UseFastBMP, PerMonFiles: Boolean;
+  CurMonArr, PrevMonArr: array of string;
+  OutPaths: TStringList;
 begin
   if (FCurrentSourceImage = '') or (not FileExists(FCurrentSourceImage)) then Exit;
 
@@ -667,8 +1054,47 @@ begin
   FLastMinuteRendered := M;
   UpdateWallHavenInfoActions;
 
+  if FMonitorImages.Count = 0 then
+    FMonitorImages.Add(FCurrentSourceImage);
+
+  SetLength(CurMonArr, FMonitorImages.Count);
+  for I := 0 to FMonitorImages.Count - 1 do
+    CurMonArr[I] := FMonitorImages[I];
+
   RenderDir := IncludeTrailingPathDelimiter(GetAppConfigDir(False)) + 'rendered';
-  NextBmp := CreateRenderedWallpaperBitmap(FCurrentSourceImage, FConfig);
+  PerMonFiles := (FConfig.MultiMonitorMode = mmIndependent) and
+                 Assigned(Screen) and (Screen.MonitorCount > 1) and
+                 BackendSupportsPerMonitorFiles(FConfig.LinuxBackend);
+
+  if PerMonFiles then
+  begin
+    OutPaths := nil;
+    if not RenderMultiMonitorWallpapers(CurMonArr, RenderDir, FConfig, True,
+      FToggleSlot, OutPaths) then
+    begin
+      if OutPaths <> nil then OutPaths.Free;
+      LogMsg('Overlay rendering error on: ' + FCurrentSourceImage);
+      Exit;
+    end;
+    try
+      if BackendHasNativeTransition(FConfig.LinuxBackend) and (FConfig.TransitionStyle <> wtNone) then
+        Res := ApplySystemMultiMonitorWallpapers(OutPaths, FConfig.LinuxBackend,
+          FConfig.MultiMonitorMode, FConfig.TransitionStyle, FConfig.TransitionDurationMs)
+      else
+        Res := ApplySystemMultiMonitorWallpapers(OutPaths, FConfig.LinuxBackend,
+          FConfig.MultiMonitorMode, wtNone, 0);
+
+      if Res.Success then
+        UpdateCurrentStatusUI
+      else
+        LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
+    finally
+      OutPaths.Free;
+    end;
+    Exit;
+  end;
+
+  NextBmp := CreateMultiMonitorCompositeBitmap(CurMonArr, FConfig.MultiMonitorMode, FConfig);
   if NextBmp = nil then
   begin
     LogMsg('Overlay rendering error on: ' + FCurrentSourceImage);
@@ -681,9 +1107,10 @@ begin
     begin
       if RenderWallpaperFromBitmap(NextBmp, RenderDir, False, FToggleSlot, RenderedPath) then
       begin
-        Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend, wtNone, 0);
+        Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend,
+          wtNone, 0, FConfig.MultiMonitorMode);
         if Res.Success then
-          LblCurrentFile.Caption := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage)
+          UpdateCurrentStatusUI
         else
           LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
       end;
@@ -695,9 +1122,24 @@ begin
       if RenderWallpaperFromBitmap(NextBmp, RenderDir, False, FToggleSlot, RenderedPath) then
       begin
         Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend,
-          FConfig.TransitionStyle, FConfig.TransitionDurationMs);
+          FConfig.TransitionStyle, FConfig.TransitionDurationMs, FConfig.MultiMonitorMode);
         if Res.Success then
-          LblCurrentFile.Caption := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage)
+          UpdateCurrentStatusUI
+        else
+          LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
+      end;
+      Exit;
+    end;
+
+    // Protect 8K / huge multi-monitor systems against expensive multi-frame CPU blending
+    if (Int64(NextBmp.Width) * Int64(NextBmp.Height)) > (4096 * 2160) then
+    begin
+      if RenderWallpaperFromBitmap(NextBmp, RenderDir, False, FToggleSlot, RenderedPath) then
+      begin
+        Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend,
+          wtNone, 0, FConfig.MultiMonitorMode);
+        if Res.Success then
+          UpdateCurrentStatusUI
         else
           LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
       end;
@@ -708,7 +1150,19 @@ begin
     if ActiveTrans = wtRandom then
       ActiveTrans := TWallpaperTransition(Ord(wtFade) + Random(5));
 
-    PrevBmp := CreateRenderedWallpaperBitmap(PrevSourceImage, FConfig);
+    if (PrevMonList <> nil) and (PrevMonList.Count > 0) then
+    begin
+      SetLength(PrevMonArr, PrevMonList.Count);
+      for I := 0 to PrevMonList.Count - 1 do
+        PrevMonArr[I] := PrevMonList[I];
+    end
+    else
+    begin
+      SetLength(PrevMonArr, 1);
+      PrevMonArr[0] := PrevSourceImage;
+    end;
+
+    PrevBmp := CreateMultiMonitorCompositeBitmap(PrevMonArr, FConfig.MultiMonitorMode, FConfig);
     try
       if PrevBmp <> nil then
       begin
@@ -727,7 +1181,8 @@ begin
           Eased := Progress * Progress * (3.0 - 2.0 * Progress);
           if RenderTransitionStep(PrevBmp, NextBmp, ActiveTrans, Eased, RenderDir,
                UseFastBMP, FToggleSlot, RenderedPath) then
-            ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend, wtNone, 0);
+            ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend,
+              wtNone, 0, FConfig.MultiMonitorMode);
           Application.ProcessMessages;
           if (MyToken <> FTransitionToken) or Application.Terminated then Exit;
           Sleep(StepDelay);
@@ -740,9 +1195,10 @@ begin
     if (MyToken <> FTransitionToken) or Application.Terminated then Exit;
     if RenderWallpaperFromBitmap(NextBmp, RenderDir, False, FToggleSlot, RenderedPath) then
     begin
-      Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend, wtNone, 0);
+      Res := ApplySystemWallpaper(RenderedPath, FConfig.LinuxBackend,
+        wtNone, 0, FConfig.MultiMonitorMode);
       if Res.Success then
-        LblCurrentFile.Caption := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage)
+        UpdateCurrentStatusUI
       else
         LogMsg('Backend error [' + Res.BackendName + ']: ' + Res.Message);
     end;
@@ -751,10 +1207,64 @@ begin
   end;
 end;
 
-procedure TMainForm.AdvanceWallpaper(Step: Integer);
+procedure TMainForm.RecordHistory(const FilePath: string);
+begin
+  if FilePath = '' then Exit;
+  while (FHistoryPos >= 0) and (FHistory.Count - 1 > FHistoryPos) do
+    FHistory.Delete(FHistory.Count - 1);
+
+  if (FHistory.Count = 0) or (not SameFileName(FHistory[FHistory.Count - 1], FilePath)) then
+    FHistory.Add(FilePath);
+
+  while FHistory.Count > 200 do
+    FHistory.Delete(0);
+
+  FHistoryPos := FHistory.Count - 1;
+end;
+
+procedure TMainForm.NavigatePrevious;
+var
+  PrevIdx, Idx: Integer;
+  Target, PrevImg: string;
+  PrevMons: TStringList;
+  Stats: TLuminanceStats;
+begin
+  PrevIdx := FHistoryPos - 1;
+  while PrevIdx >= 0 do
+  begin
+    Target := FHistory[PrevIdx];
+    if IsCandidateEligible(Target, Stats) then
+    begin
+      FHistoryPos := PrevIdx;
+      PrevImg := FCurrentSourceImage;
+      PrevMons := TStringList.Create;
+      try
+        PrevMons.Assign(FMonitorImages);
+        FCurrentSourceImage := Target;
+        Idx := FPlaylist.IndexOf(Target);
+        if Idx >= 0 then FCurrentIndex := Idx;
+        PickDistinctMonitorImages(Target, FMonitorImages);
+        FRemainingSeconds := Max(1, FConfig.IntervalMinutes) * 60;
+        FLastTickTime := Now;
+        ApplyWallpaperWithTransition(PrevImg, PrevMons);
+      finally
+        PrevMons.Free;
+      end;
+      ScheduleNextTick;
+      LogMsg('Restored previous wallpaper: ' + ExtractFileName(Target));
+      Exit;
+    end;
+    Dec(PrevIdx);
+  end;
+
+  AdvanceWallpaper(-1, False);
+end;
+
+procedure TMainForm.AdvanceWallpaper(Step: Integer; AddToHistory: Boolean);
 var
   Attempts: Integer;
   Candidate, PrevImg: string;
+  PrevMons: TStringList;
   Stats: TLuminanceStats;
 begin
   if FPlaylist.Count = 0 then
@@ -764,7 +1274,6 @@ begin
     Exit;
   end;
 
-  // Lazy per-file luminance check + cache lookup: never freezes UI even with thousands of files
   Attempts := 0;
   while Attempts < FPlaylist.Count do
   begin
@@ -776,49 +1285,28 @@ begin
     Candidate := FPlaylist[FCurrentIndex];
     Inc(Attempts);
 
-    if not FileExists(Candidate) then Continue;
-
-    if FConfig.DarkFilterEnabled then
-    begin
-      if not IsImageDarkEnough(Candidate, FConfig.MaxLuminance,
-        FConfig.IconZoneMaxLuminance, FConfig.CheckIconZone, Stats, FLuminanceCache) then
-      begin
-        if not Stats.Valid then
-          LogMsg(Format('Skipped corrupted image (%s): %s',
-            [Stats.ErrorReason, ExtractFileName(Candidate)]))
-        else
-          LogMsg(Format('Skipped image too bright (Avg=%.0f%%, Icon=%.0f%%): %s',
-            [Stats.AverageLuminance * 100, Stats.IconZoneLuminance * 100, ExtractFileName(Candidate)]));
-        Continue;
-      end;
-    end
-    else
-    begin
-      // Even with dark filter disabled, verify image isn't corrupted before rendering overlay
-      if not FLuminanceCache.TryGet(Candidate, Stats) then
-      begin
-        Stats := AnalyzeImageLuminance(Candidate);
-        if Stats.Valid then FLuminanceCache.Put(Candidate, Stats);
-      end;
-      if not Stats.Valid then
-      begin
-        LogMsg(Format('Skipped corrupted image (%s): %s',
-          [Stats.ErrorReason, ExtractFileName(Candidate)]));
-        Continue;
-      end;
-    end;
+    if not IsCandidateEligible(Candidate, Stats) then Continue;
 
     PrevImg := FCurrentSourceImage;
-    FCurrentSourceImage := Candidate;
-    FRemainingSeconds := Max(1, FConfig.IntervalMinutes) * 60;
-    FLastTickTime := Now;
-    ApplyWallpaperWithTransition(PrevImg);
+    PrevMons := TStringList.Create;
+    try
+      PrevMons.Assign(FMonitorImages);
+      FCurrentSourceImage := Candidate;
+      if AddToHistory then
+        RecordHistory(Candidate);
+      PickDistinctMonitorImages(Candidate, FMonitorImages);
+      FRemainingSeconds := Max(1, FConfig.IntervalMinutes) * 60;
+      FLastTickTime := Now;
+      ApplyWallpaperWithTransition(PrevImg, PrevMons);
+    finally
+      PrevMons.Free;
+    end;
     ScheduleNextTick;
     LogMsg('Applied wallpaper: ' + ExtractFileName(Candidate));
     Exit;
   end;
 
-  LogMsg('All images in active sources exceed the luminance threshold.');
+  LogMsg('No eligible images found in active sources (all exceed luminance filter or are blacklisted).');
 end;
 
 procedure TMainForm.TickTimerTimer(Sender: TObject);
@@ -828,23 +1316,25 @@ var
 begin
   PollScanThread;
   PollWallHavenFetch;
+  CheckSmartPause;
 
   if FScanThread <> nil then
   begin
     DecodeTime(Now, H, M, S, MS);
-    if (FCurrentSourceImage <> '') and FConfig.OverlayEnabled and (M <> FLastMinuteRendered) then
+    if (FCurrentSourceImage <> '') and FConfig.OverlayEnabled and
+       (not FSmartPaused) and (M <> FLastMinuteRendered) then
       ApplyCurrentImageWithOverlay;
     Exit;
   end;
 
-  if not FPaused then
+  if (not FPaused) and (not FSmartPaused) then
   begin
     ElapsedSec := Max(0, Round((Now - FLastTickTime) * 86400.0));
     FLastTickTime := Now;
     Dec(FRemainingSeconds, ElapsedSec);
     if FRemainingSeconds <= 0 then
     begin
-      AdvanceWallpaper(1);
+      AdvanceWallpaper(1, True);
       Exit;
     end;
   end
@@ -852,16 +1342,39 @@ begin
     FLastTickTime := Now;
 
   DecodeTime(Now, H, M, S, MS);
-  if (FCurrentSourceImage <> '') and FConfig.OverlayEnabled then
+  if (FCurrentSourceImage <> '') and FConfig.OverlayEnabled and (not FSmartPaused) then
   begin
     if FConfig.OverlayShowSeconds or (M <> FLastMinuteRendered) then
       ApplyCurrentImageWithOverlay;
   end;
 
-  if (FScanThread = nil) and (FFetchThread = nil) and (not FStartupRecheckPending) then
+  if (FScanThread = nil) and (FFetchThread = nil) and (not FStartupRecheckPending) and
+     (not FSmartPaused) then
     CheckDailySourceRecheck(False);
 
   ScheduleNextTick;
+end;
+
+procedure TMainForm.CheckListSourcesClick(Sender: TObject);
+var
+  Idx, SIdx: Integer;
+  Src: TWallpaperSource;
+begin
+  Idx := CheckListSources.ItemIndex;
+  if (Idx < 0) or (Idx >= FConfig.Sources.Count) then Exit;
+  Src := FConfig.GetSource(Idx);
+  if Src.Kind <> skWallHaven then Exit;
+
+  EditQuery.Text := Src.Target;
+  SIdx := ComboSorting.Items.IndexOf(Src.Sorting);
+  if SIdx >= 0 then
+    ComboSorting.ItemIndex := SIdx;
+  ChkCatGeneral.Checked := (Length(Src.Categories) < 1) or (Src.Categories[1] = '1');
+  ChkCatAnime.Checked := (Length(Src.Categories) >= 2) and (Src.Categories[2] = '1');
+  ChkCatPeople.Checked := (Length(Src.Categories) >= 3) and (Src.Categories[3] = '1');
+  ChkPurSFW.Checked := (Length(Src.Purity) < 1) or (Src.Purity[1] = '1');
+  ChkPurSketchy.Checked := (Length(Src.Purity) >= 2) and (Src.Purity[2] = '1');
+  ChkPurNSFW.Checked := (Length(Src.Purity) >= 3) and (Src.Purity[3] = '1');
 end;
 
 procedure TMainForm.CheckListSourcesClickCheck(Sender: TObject);
@@ -901,7 +1414,7 @@ begin
   FConfig.AddWallHavenSource(Trim(EditQuery.Text), SortStr, CatStr, PurStr, True);
   FConfig.Save;
   SyncChecklistFromConfig;
-  LogMsg(Format('Added and enabled WallHaven.cc source: "%s" (%s · Cat:%s · Pur:%s)',
+  LogMsg(Format('Saved WallHaven.cc source: "%s" (%s · Cat:%s · Pur:%s)',
     [Trim(EditQuery.Text), SortStr, CatStr, PurStr]));
 end;
 
@@ -928,12 +1441,111 @@ end;
 
 procedure TMainForm.BtnPrevWallpaperClick(Sender: TObject);
 begin
-  AdvanceWallpaper(-1);
+  NavigatePrevious;
 end;
 
 procedure TMainForm.BtnNextWallpaperClick(Sender: TObject);
 begin
-  AdvanceWallpaper(1);
+  AdvanceWallpaper(1, True);
+end;
+
+procedure TMainForm.SaveCurrentFavorite;
+var
+  DestPath, ErrMsg: string;
+begin
+  if (FCurrentSourceImage = '') or (not FileExists(FCurrentSourceImage)) then
+  begin
+    LogMsg('No active wallpaper to save to Favorites.');
+    Exit;
+  end;
+
+  if FConfig.SaveFavorite(FCurrentSourceImage, DestPath, ErrMsg) then
+  begin
+    FConfig.Save;
+    LogMsg('Saved to Favorites: ' + DestPath);
+  end
+  else
+    LogMsg('Failed to save Favorite: ' + ErrMsg);
+end;
+
+procedure TMainForm.BtnFavoriteClick(Sender: TObject);
+begin
+  SaveCurrentFavorite;
+end;
+
+procedure TMainForm.BlacklistCurrentWallpaper;
+var
+  TargetPath: string;
+  DeletedFromCache: Boolean;
+  I: Integer;
+begin
+  TargetPath := FCurrentSourceImage;
+  if Trim(TargetPath) = '' then
+  begin
+    LogMsg('No active wallpaper to blacklist.');
+    Exit;
+  end;
+
+  if not FConfig.AddToBlacklist(TargetPath, DeletedFromCache) then Exit;
+  FConfig.Save;
+  UpdateBlacklistButton;
+
+  for I := FPlaylist.Count - 1 downto 0 do
+    if SameFileName(FPlaylist[I], TargetPath) or FConfig.IsBlacklisted(FPlaylist[I]) then
+      FPlaylist.Delete(I);
+
+  for I := FHistory.Count - 1 downto 0 do
+    if SameFileName(FHistory[I], TargetPath) or FConfig.IsBlacklisted(FHistory[I]) then
+    begin
+      FHistory.Delete(I);
+      if I <= FHistoryPos then
+        Dec(FHistoryPos);
+    end;
+  if FHistoryPos >= FHistory.Count then
+    FHistoryPos := FHistory.Count - 1;
+
+  FCurrentIndex := Min(FCurrentIndex, FPlaylist.Count - 1);
+  if DeletedFromCache then
+    LogMsg('Blacklisted permanently and deleted from cache: ' + ExtractFileName(TargetPath))
+  else
+    LogMsg('Blacklisted permanently: ' + ExtractFileName(TargetPath));
+
+  if FPlaylist.Count > 0 then
+    AdvanceWallpaper(1, True)
+  else
+  begin
+    FCurrentSourceImage := '';
+    FMonitorImages.Clear;
+    UpdateWallHavenInfoActions;
+    UpdateCurrentStatusUI;
+  end;
+end;
+
+procedure TMainForm.BtnBlacklistClick(Sender: TObject);
+begin
+  BlacklistCurrentWallpaper;
+end;
+
+procedure TMainForm.BtnOpenFavoritesClick(Sender: TObject);
+begin
+  if Trim(FConfig.FavoritesDir) = '' then
+    FConfig.FavoritesDir := FConfig.GetDefaultFavoritesDir;
+  ForceDirectories(FConfig.FavoritesDir);
+  if not OpenURL(FConfig.FavoritesDir) then
+    LogMsg('Favorites folder: ' + FConfig.FavoritesDir);
+end;
+
+procedure TMainForm.BtnClearBlacklistClick(Sender: TObject);
+var
+  OldCount: Integer;
+begin
+  OldCount := FConfig.BlacklistedItems.Count;
+  if OldCount = 0 then Exit;
+  FConfig.ClearBlacklist;
+  FConfig.Save;
+  UpdateBlacklistButton;
+  LogMsg(Format('Cleared permanent blacklist (%d item(s) restored).', [OldCount]));
+  StartAsyncScan(False);
 end;
 
 procedure TMainForm.SetPausedState(APaused: Boolean);
@@ -959,6 +1571,7 @@ begin
     MnuPause.Caption := 'Pause Slideshow';
     LogMsg('Slideshow resumed.');
   end;
+  UpdateCurrentStatusUI;
   ScheduleNextTick;
 end;
 
@@ -1211,7 +1824,7 @@ end;
 procedure TMainForm.StartWallHavenFetch(SelectFirstOnReady, IsDailyAuto: Boolean);
 var
   I, EnabledWH, MaxPerSrc: Integer;
-  SortStr, CatStr, PurStr: string;
+  SortStr, CatStr, PurStr, ResolvedRes, ResLabel: string;
 begin
   if FFetchThread <> nil then
   begin
@@ -1268,12 +1881,17 @@ begin
   BtnFetchWallHaven.Caption := 'Fetching...';
   MnuFetchWH.Enabled := False;
 
-  LogMsg(Format('Fetching from active WallHaven.cc sources in background (up to %d pages deep, max %d cached)...',
-    [FConfig.WallHavenMaxPages, FConfig.WallHavenMaxCached]));
+  ResolvedRes := ResolveScreenMinRes;
+  if ResolvedRes = '' then
+    ResLabel := 'any'
+  else
+    ResLabel := ResolvedRes;
+  LogMsg(Format('Fetching WallHaven.cc feeds in background (%d pg, max %d cached, res=%s)...',
+    [FConfig.WallHavenMaxPages, FConfig.WallHavenMaxCached, ResLabel]));
 
   MaxPerSrc := Min(Max(12, FConfig.WallHavenMaxPages * 3), Max(5, FConfig.WallHavenMaxCached));
   FFetchThread := TWallHavenFetchThread.Create(FConfig, MaxPerSrc, FLuminanceCache,
-    SelectFirstOnReady, IsDailyAuto, FCurrentSourceImage);
+    SelectFirstOnReady, IsDailyAuto, FCurrentSourceImage, ResolvedRes);
   ScheduleNextTick;
 end;
 
@@ -1285,6 +1903,7 @@ var
   I: Integer;
   aSelectFirst, IsDailyAuto: Boolean;
   PrevImg: string;
+  PrevMons: TStringList;
 begin
   if FFetchThread = nil then Exit;
 
@@ -1333,10 +1952,18 @@ begin
     if aSelectFirst and (Files.Count > 0) then
     begin
       PrevImg := FCurrentSourceImage;
-      FCurrentSourceImage := Files[0];
-      FRemainingSeconds := Max(1, FConfig.IntervalMinutes) * 60;
-      FLastTickTime := Now;
-      ApplyWallpaperWithTransition(PrevImg);
+      PrevMons := TStringList.Create;
+      try
+        PrevMons.Assign(FMonitorImages);
+        FCurrentSourceImage := Files[0];
+        RecordHistory(Files[0]);
+        PickDistinctMonitorImages(Files[0], FMonitorImages);
+        FRemainingSeconds := Max(1, FConfig.IntervalMinutes) * 60;
+        FLastTickTime := Now;
+        ApplyWallpaperWithTransition(PrevImg, PrevMons);
+      finally
+        PrevMons.Free;
+      end;
     end;
     StartAsyncScan(FCurrentSourceImage = '');
     ScheduleNextTick;
@@ -1422,12 +2049,17 @@ end;
 procedure TMainForm.BtnSavePrefsClick(Sender: TObject);
 var
   AutoMsg: string;
+  OldMultiMode: TMultiMonitorMode;
 begin
+  OldMultiMode := FConfig.MultiMonitorMode;
   LoadUIToConfig;
   SetAutoStartEnabled(FConfig.AutoStart, AutoMsg);
   FConfig.Save;
   FRemainingSeconds := Min(FRemainingSeconds, Max(1, FConfig.IntervalMinutes) * 60);
   LblDetectedDE.Caption := 'Detected environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
+  CheckSmartPause;
+  if (OldMultiMode <> FConfig.MultiMonitorMode) and (FCurrentSourceImage <> '') then
+    PickDistinctMonitorImages(FCurrentSourceImage, FMonitorImages);
   StartAsyncScan(False);
   ApplyCurrentImageWithOverlay;
   ScheduleNextTick;
@@ -1435,57 +2067,26 @@ begin
   LogMsg('Preferences saved to ' + FConfig.GetConfigFilePath);
 end;
 
-function TMainForm.ExtractWallHavenId(const FilePath: string; out WhId: string): Boolean;
-var
-  BaseName, Tail, Cand: string;
-  P, I: Integer;
-  Ch: Char;
-begin
-  Result := False;
-  WhId := '';
-  if Trim(FilePath) = '' then Exit;
-
-  BaseName := LowerCase(ChangeFileExt(ExtractFileName(FilePath), ''));
-  P := Pos('wallhaven-', BaseName);
-  if P = 0 then
-    P := Pos('wallhaven_', BaseName);
-  if P = 0 then Exit;
-
-  Tail := Copy(BaseName, P + 10, Length(BaseName));
-  Cand := '';
-  for I := 1 to Length(Tail) do
-  begin
-    Ch := Tail[I];
-    if Ch in ['a'..'z', '0'..'9'] then
-      Cand := Cand + Ch
-    else
-      Break;
-  end;
-
-  if (Length(Cand) >= 5) and (Length(Cand) <= 7) then
-  begin
-    WhId := Cand;
-    Result := True;
-  end;
-end;
-
 procedure TMainForm.UpdateWallHavenInfoActions;
 var
   WhId: string;
   HasId: Boolean;
 begin
-  HasId := ExtractWallHavenId(FCurrentSourceImage, WhId);
+  HasId := ExtractWallHavenIdFromPath(FCurrentSourceImage, WhId);
   MnuOpenWallHavenPage.Enabled := HasId;
   BtnOpenWallHavenPage.Enabled := HasId;
+  BtnOpenWallHavenPage.Caption := 'WallHaven.cc Info';
   if HasId then
   begin
     MnuOpenWallHavenPage.Caption := Format('Open Info on WallHaven.cc (%s)', [WhId]);
-    BtnOpenWallHavenPage.Caption := Format('WallHaven Info (%s)', [WhId]);
+    BtnOpenWallHavenPage.Hint := 'Open https://wallhaven.cc/w/' + WhId;
+    BtnOpenWallHavenPage.ShowHint := True;
   end
   else
   begin
     MnuOpenWallHavenPage.Caption := 'Open Info on WallHaven.cc';
-    BtnOpenWallHavenPage.Caption := 'WallHaven.cc Info';
+    BtnOpenWallHavenPage.Hint := 'Available when active wallpaper is from WallHaven.cc';
+    BtnOpenWallHavenPage.ShowHint := False;
   end;
 end;
 
@@ -1499,7 +2100,7 @@ begin
     Exit;
   end;
 
-  if not ExtractWallHavenId(FCurrentSourceImage, WhId) then
+  if not ExtractWallHavenIdFromPath(FCurrentSourceImage, WhId) then
   begin
     LogMsg('Active wallpaper is not from WallHaven.cc: ' + ExtractFileName(FCurrentSourceImage));
     Exit;
@@ -1527,7 +2128,7 @@ end;
 
 procedure TMainForm.TrayIcon1Click(Sender: TObject);
 begin
-  AdvanceWallpaper(1);
+  AdvanceWallpaper(1, True);
 end;
 
 procedure TMainForm.MnuExitClick(Sender: TObject);
@@ -1555,12 +2156,12 @@ begin
     if (Arg = '--next') or (Arg = '-n') then
     begin
       LogMsg('CLI command: ' + Arg);
-      AdvanceWallpaper(1);
+      AdvanceWallpaper(1, True);
     end
     else if (Arg = '--previous') or (Arg = '--prev') or (Arg = '-p') then
     begin
       LogMsg('CLI command: ' + Arg);
-      AdvanceWallpaper(-1);
+      NavigatePrevious;
     end
     else if Arg = '--pause' then
       SetPausedState(True)
@@ -1568,6 +2169,10 @@ begin
       SetPausedState(False)
     else if Arg = '--toggle-pause' then
       SetPausedState(not FPaused)
+    else if (Arg = '--favorite') or (Arg = '-f') then
+      SaveCurrentFavorite
+    else if (Arg = '--blacklist') or (Arg = '-b') then
+      BlacklistCurrentWallpaper
     else if (Arg = '--apply') or (Arg = '--refresh') then
     begin
       LogMsg('CLI command: ' + Arg);

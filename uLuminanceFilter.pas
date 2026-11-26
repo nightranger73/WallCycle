@@ -37,6 +37,7 @@ type
     procedure SaveIfDirty;
     function TryGet(const FileName: string; out Stats: TLuminanceStats): Boolean;
     procedure Put(const FileName: string; const Stats: TLuminanceStats);
+    function PruneMissingFiles: Integer;
   end;
 
 function DetectImageFormat(const FileName: string): TDetectedImageFormat;
@@ -259,6 +260,44 @@ begin
   end;
 end;
 
+function TLuminanceCache.PruneMissingFiles: Integer;
+var
+  I, P: Integer;
+  Key, FilePath: string;
+  ToRemove: TStringList;
+begin
+  Result := 0;
+  ToRemove := TStringList.Create;
+  try
+    FLock.Enter;
+    try
+      for I := 0 to FEntries.Count - 1 do
+      begin
+        Key := FEntries.Names[I];
+        P := Pos('|', Key);
+        if P > 1 then
+          FilePath := Copy(Key, 1, P - 1)
+        else
+          FilePath := Key;
+        if (FilePath = '') or (not FileExists(FilePath)) then
+          ToRemove.Add(Key);
+      end;
+
+      for I := 0 to ToRemove.Count - 1 do
+      begin
+        FEntries.Delete(ToRemove[I]);
+        Inc(Result);
+      end;
+      if Result > 0 then
+        FDirty := True;
+    finally
+      FLock.Leave;
+    end;
+  finally
+    ToRemove.Free;
+  end;
+end;
+
 function HexColorToLuminance(const HexStr: string): Double;
 var
   S: string;
@@ -310,7 +349,7 @@ begin
       Reader := TFPReaderBMP.Create;
   else
     begin
-      ErrMsg := 'Header file non riconosciuto o file corrotto';
+      ErrMsg := 'Unrecognized file header or corrupted file';
       Exit(False);
     end;
   end;
@@ -320,7 +359,7 @@ begin
       Img.LoadFromFile(FileName, Reader);
       if (Img.Width <= 0) or (Img.Height <= 0) then
       begin
-        ErrMsg := 'Dimensioni immagine non valide (0x0)';
+        ErrMsg := 'Invalid image dimensions (0x0)';
         Exit(False);
       end;
       Result := True;
@@ -361,7 +400,7 @@ begin
 
   if not FileExists(FileName) then
   begin
-    Result.ErrorReason := 'File non trovato';
+    Result.ErrorReason := 'File not found';
     Exit;
   end;
 
@@ -370,7 +409,7 @@ begin
   Result.Format := Fmt;
   if Fmt = ifUnknown then
   begin
-    Result.ErrorReason := 'Header corrotto o formato non supportato (atteso JPEG/PNG/BMP)';
+    Result.ErrorReason := 'Corrupted header or unsupported format (expected JPEG/PNG/BMP)';
     Exit;
   end;
 
@@ -384,7 +423,7 @@ begin
         Img.SetSize(0, 0);
         if not TryDecodeImage(FileName, ifJPEG, jsFullSize, Img, ErrMsg) then
         begin
-          Result.ErrorReason := 'JPEG corrotto: ' + ErrMsg;
+          Result.ErrorReason := 'Corrupted JPEG: ' + ErrMsg;
           Exit;
         end;
       end;
@@ -393,7 +432,7 @@ begin
     begin
       if not TryDecodeImage(FileName, Fmt, jsFullSize, Img, ErrMsg) then
       begin
-        Result.ErrorReason := 'Immagine corrotta: ' + ErrMsg;
+        Result.ErrorReason := 'Corrupted image: ' + ErrMsg;
         Exit;
       end;
     end;
@@ -460,7 +499,7 @@ begin
       Result.Valid := True;
     end
     else
-      Result.ErrorReason := 'Nessun pixel leggibile';
+      Result.ErrorReason := 'No readable pixels';
   finally
     Img.Free;
   end;

@@ -35,12 +35,14 @@ type
     FIconLum: Double;
     FCheckIconZone: Boolean;
     FCache: TLuminanceCache;
+    FBlacklist: TStringList;
 
     // Shared handoff state (never calls Synchronize -> 100% deadlock-free)
     FDiscovered: TStringList;
     FEligible: TStringList;
     FState: TScanState;
 
+    function IsPathBlacklisted(const FilePath: string): Boolean;
     procedure ScanDir(const Dir: string; Recursive: Boolean; Kind: TSourceKind;
       OutPaths: TStrings; OutKinds: TList);
   protected
@@ -65,6 +67,9 @@ begin
   FLock := TCriticalSection.Create;
   FDiscovered := TStringList.Create;
   FEligible := TStringList.Create;
+  FBlacklist := TStringList.Create;
+  FBlacklist.CaseSensitive := False;
+  FBlacklist.Assign(Config.BlacklistedItems);
   FCache := Cache;
 
   FShuffle := Config.ShuffleOrder;
@@ -101,10 +106,32 @@ end;
 
 destructor TPlaylistScanThread.Destroy;
 begin
+  FBlacklist.Free;
   FDiscovered.Free;
   FEligible.Free;
   FLock.Free;
   inherited Destroy;
+end;
+
+function TPlaylistScanThread.IsPathBlacklisted(const FilePath: string): Boolean;
+var
+  I: Integer;
+  WhId, Token, Entry: string;
+begin
+  Result := False;
+  if FBlacklist.Count = 0 then Exit;
+
+  Token := '';
+  if ExtractWallHavenIdFromPath(FilePath, WhId) then
+    Token := 'wh:' + LowerCase(WhId);
+
+  for I := 0 to FBlacklist.Count - 1 do
+  begin
+    Entry := Trim(FBlacklist[I]);
+    if Entry = '' then Continue;
+    if (Token <> '') and SameText(Entry, Token) then Exit(True);
+    if SameFileName(Entry, FilePath) then Exit(True);
+  end;
 end;
 
 procedure TPlaylistScanThread.ScanDir(const Dir: string; Recursive: Boolean;
@@ -131,8 +158,11 @@ begin
           Ext := LowerCase(ExtractFileExt(SR.Name));
           if (Ext = '.jpg') or (Ext = '.jpeg') or (Ext = '.png') or (Ext = '.bmp') then
           begin
-            OutPaths.Add(Base + SR.Name);
-            OutKinds.Add(Pointer(PtrInt(Ord(Kind))));
+            if not IsPathBlacklisted(Base + SR.Name) then
+            begin
+              OutPaths.Add(Base + SR.Name);
+              OutKinds.Add(Pointer(PtrInt(Ord(Kind))));
+            end;
           end;
         end;
       until FindNext(SR) <> 0;
@@ -228,7 +258,10 @@ begin
       end;
 
       if (not Terminated) and (FCache <> nil) then
+      begin
+        FCache.PruneMissingFiles;
         FCache.SaveIfDirty;
+      end;
     end;
   finally
     FLock.Enter;

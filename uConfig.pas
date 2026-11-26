@@ -20,6 +20,12 @@ type
     wtRandom
   );
 
+  TMultiMonitorMode = (
+    mmPrimary,
+    mmIndependent,
+    mmSpan
+  );
+
   TLinuxBackendMode = (
     lbAuto,
     lbGnome,
@@ -61,6 +67,7 @@ type
     ShuffleOrder: Boolean;
     TransitionStyle: TWallpaperTransition;
     TransitionDurationMs: Integer;
+    MultiMonitorMode: TMultiMonitorMode;
     Sources: TObjectList; // Owns TWallpaperSource items
 
     // Date & Time overlay preferences
@@ -85,7 +92,8 @@ type
 
     // WallHaven.cc API global credentials, filters & cache
     WallHavenApiKey: string;
-    WallHavenAtLeast: string;        // e.g. '1920x1080'
+    WallHavenAtLeast: string;        // 'auto', '', or '1920x1080', etc.
+    WallHavenRatio: string;          // '', '16x9', '16x10', '21x9', '9x16', 'landscape', 'portrait'
     WallHavenCategories: string;     // '100'..'111' (General, Anime, People)
     WallHavenPurity: string;         // '100'..'111' (SFW, Sketchy, NSFW)
     WallHavenMaxPages: Integer;      // Depth in pages (default 10)
@@ -94,7 +102,13 @@ type
     DailySourceRecheck: Boolean;
     LastDailyRecheckUtc: Int64;
 
-    // OS Backend preferences
+    // Favorites & permanent Blacklist
+    FavoritesDir: string;
+    BlacklistedItems: TStringList;   // Contains full paths and/or 'wh:<id>' tokens
+
+    // Smart Pause & OS Backend preferences
+    SmartPauseFullscreen: Boolean;
+    SmartPauseOnBattery: Boolean;
     LinuxBackend: TLinuxBackendMode;
     StartMinimized: Boolean;
     AutoStart: Boolean;
@@ -103,24 +117,66 @@ type
     destructor Destroy; override;
     function GetConfigFilePath: string;
     function GetDefaultCacheDir: string;
+    function GetDefaultFavoritesDir: string;
     function GetSource(Index: Integer): TWallpaperSource;
     procedure AddLocalFolder(const DirPath: string; AEnabled: Boolean = True);
     procedure AddWallHavenSource(const Query, Sorting, Categories, Purity: string;
       AEnabled: Boolean = True);
+    function IsBlacklisted(const FilePath: string; const WhId: string = ''): Boolean;
+    function AddToBlacklist(const FilePath: string; out DeletedFromCache: Boolean): Boolean;
+    procedure ClearBlacklist;
+    function SaveFavorite(const SourcePath: string; out DestPath, ErrMsg: string): Boolean;
     procedure Load;
     procedure Save;
   end;
 
+function ExtractWallHavenIdFromPath(const FilePath: string; out WhId: string): Boolean;
 function CornerToStr(C: TOverlayCorner): string;
 function StrToCorner(const S: string): TOverlayCorner;
 function TransitionToStr(T: TWallpaperTransition): string;
 function StrToTransition(const S: string): TWallpaperTransition;
+function MultiMonitorToStr(M: TMultiMonitorMode): string;
+function StrToMultiMonitor(const S: string): TMultiMonitorMode;
 function BackendToStr(B: TLinuxBackendMode): string;
 function StrToBackend(const S: string): TLinuxBackendMode;
 function SourceKindToStr(K: TSourceKind): string;
 function StrToSourceKind(const S: string): TSourceKind;
 
 implementation
+
+function ExtractWallHavenIdFromPath(const FilePath: string; out WhId: string): Boolean;
+var
+  BaseName, Tail, Cand: string;
+  P, I: Integer;
+  Ch: Char;
+begin
+  Result := False;
+  WhId := '';
+  if Trim(FilePath) = '' then Exit;
+
+  BaseName := LowerCase(ChangeFileExt(ExtractFileName(FilePath), ''));
+  P := Pos('wallhaven-', BaseName);
+  if P = 0 then
+    P := Pos('wallhaven_', BaseName);
+  if P = 0 then Exit;
+
+  Tail := Copy(BaseName, P + 10, Length(BaseName));
+  Cand := '';
+  for I := 1 to Length(Tail) do
+  begin
+    Ch := Tail[I];
+    if Ch in ['a'..'z', '0'..'9'] then
+      Cand := Cand + Ch
+    else
+      Break;
+  end;
+
+  if (Length(Cand) >= 5) and (Length(Cand) <= 7) then
+  begin
+    WhId := Cand;
+    Result := True;
+  end;
+end;
 
 function CornerToStr(C: TOverlayCorner): string;
 begin
@@ -169,6 +225,27 @@ begin
   if LowS = 'center' then Exit(wtCenter);
   if LowS = 'random' then Exit(wtRandom);
   Result := wtFade;
+end;
+
+function MultiMonitorToStr(M: TMultiMonitorMode): string;
+begin
+  case M of
+    mmPrimary: Result := 'primary';
+    mmIndependent: Result := 'independent';
+    mmSpan: Result := 'span';
+  else
+    Result := 'primary';
+  end;
+end;
+
+function StrToMultiMonitor(const S: string): TMultiMonitorMode;
+var
+  LowS: string;
+begin
+  LowS := LowerCase(Trim(S));
+  if LowS = 'independent' then Exit(mmIndependent);
+  if LowS = 'span' then Exit(mmSpan);
+  Result := mmPrimary;
 end;
 
 function BackendToStr(B: TLinuxBackendMode): string;
@@ -300,12 +377,16 @@ constructor TWallCycleConfig.Create;
 begin
   inherited Create;
   Sources := TObjectList.Create(True);
+  BlacklistedItems := TStringList.Create;
+  BlacklistedItems.Duplicates := dupIgnore;
+  BlacklistedItems.CaseSensitive := False;
 
   IntervalMinutes := 15;
   IncludeSubfolders := True;
   ShuffleOrder := True;
   TransitionStyle := wtFade;
   TransitionDurationMs := 600;
+  MultiMonitorMode := mmPrimary;
 
   OverlayEnabled := True;
   OverlayCorner := ocTopRight;
@@ -326,7 +407,8 @@ begin
   IconZoneMaxLuminance := 0.32;
 
   WallHavenApiKey := '';
-  WallHavenAtLeast := '1920x1080';
+  WallHavenAtLeast := 'auto';
+  WallHavenRatio := '';
   WallHavenCategories := '100';
   WallHavenPurity := '100';
   WallHavenMaxPages := 10;
@@ -335,6 +417,10 @@ begin
   DailySourceRecheck := True;
   LastDailyRecheckUtc := 0;
 
+  FavoritesDir := GetDefaultFavoritesDir;
+
+  SmartPauseFullscreen := True;
+  SmartPauseOnBattery := True;
   LinuxBackend := lbAuto;
   StartMinimized := False;
   AutoStart := False;
@@ -345,6 +431,7 @@ end;
 
 destructor TWallCycleConfig.Destroy;
 begin
+  BlacklistedItems.Free;
   Sources.Free;
   inherited Destroy;
 end;
@@ -361,6 +448,11 @@ end;
 function TWallCycleConfig.GetDefaultCacheDir: string;
 begin
   Result := IncludeTrailingPathDelimiter(GetAppConfigDir(False)) + 'wallhaven_cache';
+end;
+
+function TWallCycleConfig.GetDefaultFavoritesDir: string;
+begin
+  Result := IncludeTrailingPathDelimiter(GetAppConfigDir(False)) + 'favorites';
 end;
 
 function TWallCycleConfig.GetSource(Index: Integer): TWallpaperSource;
@@ -409,9 +501,139 @@ begin
   Sources.Add(TWallpaperSource.Create(AEnabled, skWallHaven, Q, Sorting, Categories, Purity));
 end;
 
+function TWallCycleConfig.IsBlacklisted(const FilePath: string; const WhId: string): Boolean;
+var
+  I: Integer;
+  ExtractedId, Token, Entry: string;
+begin
+  Result := False;
+  Token := '';
+  if Trim(WhId) <> '' then
+    Token := 'wh:' + LowerCase(Trim(WhId))
+  else if ExtractWallHavenIdFromPath(FilePath, ExtractedId) then
+    Token := 'wh:' + LowerCase(ExtractedId);
+
+  for I := 0 to BlacklistedItems.Count - 1 do
+  begin
+    Entry := Trim(BlacklistedItems[I]);
+    if Entry = '' then Continue;
+    if (Token <> '') and SameText(Entry, Token) then
+      Exit(True);
+    if (FilePath <> '') and SameFileName(Entry, FilePath) then
+      Exit(True);
+  end;
+end;
+
+function TWallCycleConfig.AddToBlacklist(const FilePath: string;
+  out DeletedFromCache: Boolean): Boolean;
+var
+  WhId, Token, CachePrefix, NormPath: string;
+begin
+  Result := False;
+  DeletedFromCache := False;
+  if Trim(FilePath) = '' then Exit;
+
+  if ExtractWallHavenIdFromPath(FilePath, WhId) then
+  begin
+    Token := 'wh:' + LowerCase(WhId);
+    if BlacklistedItems.IndexOf(Token) < 0 then
+      BlacklistedItems.Add(Token);
+  end;
+
+  if BlacklistedItems.IndexOf(FilePath) < 0 then
+    BlacklistedItems.Add(FilePath);
+
+  CachePrefix := LowerCase(IncludeTrailingPathDelimiter(ExpandFileName(WallHavenCacheDir)));
+  NormPath := LowerCase(ExpandFileName(FilePath));
+  if (Pos(CachePrefix, NormPath) = 1) and FileExists(FilePath) then
+    DeletedFromCache := DeleteFile(FilePath);
+
+  Result := True;
+end;
+
+procedure TWallCycleConfig.ClearBlacklist;
+begin
+  BlacklistedItems.Clear;
+end;
+
+function TWallCycleConfig.SaveFavorite(const SourcePath: string;
+  out DestPath, ErrMsg: string): Boolean;
+var
+  BaseName, Ext, NameNoExt: string;
+  SrcFS, DstFS: TFileStream;
+  Suffix: Integer;
+begin
+  Result := False;
+  DestPath := '';
+  ErrMsg := '';
+  if (Trim(SourcePath) = '') or (not FileExists(SourcePath)) then
+  begin
+    ErrMsg := 'Source image file not found.';
+    Exit;
+  end;
+
+  if Trim(FavoritesDir) = '' then
+    FavoritesDir := GetDefaultFavoritesDir;
+  if not ForceDirectories(FavoritesDir) then
+  begin
+    ErrMsg := 'Unable to create favorites folder: ' + FavoritesDir;
+    Exit;
+  end;
+
+  BaseName := ExtractFileName(SourcePath);
+  DestPath := IncludeTrailingPathDelimiter(FavoritesDir) + BaseName;
+  if SameFileName(SourcePath, DestPath) or FileExists(DestPath) then
+  begin
+    // Avoid overwriting distinct files with same name unless exact WallHaven ID matches
+    if FileExists(DestPath) then
+    begin
+      if SameFileName(SourcePath, DestPath) then
+      begin
+        Result := True;
+        Exit;
+      end;
+      NameNoExt := ChangeFileExt(BaseName, '');
+      Ext := ExtractFileExt(BaseName);
+      if Pos('wallhaven-', LowerCase(NameNoExt)) = 1 then
+      begin
+        // Same WallHaven ID already saved in favorites
+        Result := True;
+        Exit;
+      end;
+      Suffix := 2;
+      while FileExists(IncludeTrailingPathDelimiter(FavoritesDir) +
+        NameNoExt + '_' + IntToStr(Suffix) + Ext) do
+        Inc(Suffix);
+      DestPath := IncludeTrailingPathDelimiter(FavoritesDir) +
+        NameNoExt + '_' + IntToStr(Suffix) + Ext;
+    end;
+  end;
+
+  try
+    SrcFS := TFileStream.Create(SourcePath, fmOpenRead or fmShareDenyNone);
+    try
+      DstFS := TFileStream.Create(DestPath, fmCreate);
+      try
+        DstFS.CopyFrom(SrcFS, 0);
+      finally
+        DstFS.Free;
+      end;
+    finally
+      SrcFS.Free;
+    end;
+    Result := True;
+  except
+    on E: Exception do
+    begin
+      ErrMsg := E.Message;
+      Result := False;
+    end;
+  end;
+end;
+
 procedure TWallCycleConfig.Load;
 var
-  Path: string;
+  Path, ItemStr: string;
   FS: TFileStream;
   Data: TJSONData;
   Obj, SrcObj: TJSONObject;
@@ -437,6 +659,7 @@ begin
     TransitionDurationMs := Obj.Get('transitionDurationMs', TransitionDurationMs);
     if TransitionDurationMs < 200 then TransitionDurationMs := 200;
     if TransitionDurationMs > 3000 then TransitionDurationMs := 3000;
+    MultiMonitorMode := StrToMultiMonitor(Obj.Get('multiMonitorMode', MultiMonitorToStr(MultiMonitorMode)));
 
     Arr := Obj.Get('sources', TJSONArray(nil));
     if Arr <> nil then
@@ -495,6 +718,7 @@ begin
 
     WallHavenApiKey := Obj.Get('wallHavenApiKey', WallHavenApiKey);
     WallHavenAtLeast := Obj.Get('wallHavenAtLeast', WallHavenAtLeast);
+    WallHavenRatio := Obj.Get('wallHavenRatio', WallHavenRatio);
     WallHavenCategories := Obj.Get('wallHavenCategories', WallHavenCategories);
     WallHavenPurity := Obj.Get('wallHavenPurity', WallHavenPurity);
     WallHavenMaxPages := Obj.Get('wallHavenMaxPages', WallHavenMaxPages);
@@ -507,6 +731,21 @@ begin
     DailySourceRecheck := Obj.Get('dailySourceRecheck', DailySourceRecheck);
     LastDailyRecheckUtc := Obj.Get('lastDailyRecheckUtc', LastDailyRecheckUtc);
 
+    FavoritesDir := Obj.Get('favoritesDir', GetDefaultFavoritesDir);
+    BlacklistedItems.Clear;
+    Arr := Obj.Get('blacklist', TJSONArray(nil));
+    if Arr <> nil then
+    begin
+      for I := 0 to Arr.Count - 1 do
+      begin
+        ItemStr := Trim(Arr.Strings[I]);
+        if ItemStr <> '' then
+          BlacklistedItems.Add(ItemStr);
+      end;
+    end;
+
+    SmartPauseFullscreen := Obj.Get('smartPauseFullscreen', SmartPauseFullscreen);
+    SmartPauseOnBattery := Obj.Get('smartPauseOnBattery', SmartPauseOnBattery);
     LinuxBackend := StrToBackend(Obj.Get('linuxBackend', BackendToStr(LinuxBackend)));
     StartMinimized := Obj.Get('startMinimized', StartMinimized);
     AutoStart := Obj.Get('autoStart', AutoStart);
@@ -532,6 +771,7 @@ begin
     Obj.Add('shuffleOrder', ShuffleOrder);
     Obj.Add('transitionStyle', TransitionToStr(TransitionStyle));
     Obj.Add('transitionDurationMs', TransitionDurationMs);
+    Obj.Add('multiMonitorMode', MultiMonitorToStr(MultiMonitorMode));
 
     Arr := TJSONArray.Create;
     for I := 0 to Sources.Count - 1 do
@@ -568,6 +808,7 @@ begin
 
     Obj.Add('wallHavenApiKey', WallHavenApiKey);
     Obj.Add('wallHavenAtLeast', WallHavenAtLeast);
+    Obj.Add('wallHavenRatio', WallHavenRatio);
     Obj.Add('wallHavenCategories', WallHavenCategories);
     Obj.Add('wallHavenPurity', WallHavenPurity);
     Obj.Add('wallHavenMaxPages', WallHavenMaxPages);
@@ -576,6 +817,15 @@ begin
     Obj.Add('dailySourceRecheck', DailySourceRecheck);
     Obj.Add('lastDailyRecheckUtc', LastDailyRecheckUtc);
 
+    Obj.Add('favoritesDir', FavoritesDir);
+    Arr := TJSONArray.Create;
+    for I := 0 to BlacklistedItems.Count - 1 do
+      if Trim(BlacklistedItems[I]) <> '' then
+        Arr.Add(BlacklistedItems[I]);
+    Obj.Add('blacklist', Arr);
+
+    Obj.Add('smartPauseFullscreen', SmartPauseFullscreen);
+    Obj.Add('smartPauseOnBattery', SmartPauseOnBattery);
     Obj.Add('linuxBackend', BackendToStr(LinuxBackend));
     Obj.Add('startMinimized', StartMinimized);
     Obj.Add('autoStart', AutoStart);

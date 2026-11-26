@@ -1,10 +1,10 @@
 object MainForm: TMainForm
   Left = 320
-  Height = 716
-  Top = 120
+  Height = 768
+  Top = 100
   Width = 820
   Caption = 'WallCycle - Wallpaper Slideshow & Overlay Manager'
-  ClientHeight = 716
+  ClientHeight = 768
   ClientWidth = 820
   OnCloseQuery = FormCloseQuery
   OnCreate = FormCreate
@@ -13,7 +13,7 @@ object MainForm: TMainForm
   LCLVersion = '3.2.0.0'
   object PageControl1: TPageControl
     Left = 12
-    Height = 648
+    Height = 700
     Top = 12
     Width = 796
     ActivePage = TabSources
@@ -22,22 +22,23 @@ object MainForm: TMainForm
     TabOrder = 0
     object TabSources: TTabSheet
       Caption = 'Image Sources & Slideshow'
-      ClientHeight = 617
+      ClientHeight = 669
       ClientWidth = 788
       object LblSources: TLabel
         Left = 16
         Height = 17
         Top = 12
-        Width = 380
+        Width = 396
         Caption = 'Active sources checklist (local PC folders & WallHaven.cc feeds):'
       end
       object CheckListSources: TCheckListBox
         Left = 16
-        Height = 118
+        Height = 112
         Top = 34
         Width = 576
         Anchors = [akTop, akLeft, akRight]
         ItemHeight = 0
+        OnClick = CheckListSourcesClick
         OnClickCheck = CheckListSourcesClickCheck
         TabOrder = 0
       end
@@ -73,12 +74,12 @@ object MainForm: TMainForm
       end
       object GrpWallHavenAdd: TGroupBox
         Left = 16
-        Height = 148
-        Top = 160
+        Height = 176
+        Top = 154
         Width = 756
         Anchors = [akTop, akLeft, akRight]
-        Caption = 'Add or Update WallHaven.cc Sources'
-        ClientHeight = 128
+        Caption = 'Add or Update WallHaven.cc Sources (click a feed above to edit)'
+        ClientHeight = 156
         ClientWidth = 752
         TabOrder = 4
         object LblQuery: TLabel
@@ -124,7 +125,7 @@ object MainForm: TMainForm
           Top = 8
           Width = 142
           Anchors = [akTop, akRight]
-          Caption = 'Add to Checklist'
+          Caption = 'Add / Update Feed'
           OnClick = BtnAddWallHavenClick
           TabOrder = 2
         end
@@ -205,67 +206,116 @@ object MainForm: TMainForm
           Left = 630
           Height = 28
           Top = 44
-          Width = 56
+          Width = 64
           MaxValue = 25
           MinValue = 1
           TabOrder = 9
           Value = 10
         end
+        object LblMinRes: TLabel
+          Left = 12
+          Height = 17
+          Top = 85
+          Width = 66
+          Caption = 'Min Res:'
+        end
+        object ComboMinRes: TComboBox
+          Left = 82
+          Height = 28
+          Top = 80
+          Width = 148
+          ItemHeight = 0
+          Items.Strings = (
+            'Auto (Screen)'
+            'Any'
+            '1280x720'
+            '1920x1080'
+            '2560x1440'
+            '3840x2160'
+          )
+          Style = csDropDownList
+          TabOrder = 10
+        end
+        object LblRatio: TLabel
+          Left = 248
+          Height = 17
+          Top = 85
+          Width = 46
+          Caption = 'Ratio:'
+        end
+        object ComboRatio: TComboBox
+          Left = 298
+          Height = 28
+          Top = 80
+          Width = 136
+          ItemHeight = 0
+          Items.Strings = (
+            'Any'
+            '16x9'
+            '16x10'
+            '21x9'
+            '9x16'
+            'landscape'
+            'portrait'
+          )
+          Style = csDropDownList
+          TabOrder = 11
+        end
+        object LblMaxCached: TLabel
+          Left = 456
+          Height = 17
+          Top = 85
+          Width = 94
+          Anchors = [akTop, akRight]
+          Caption = 'Max cached:'
+        end
+        object SpinMaxCached: TSpinEdit
+          Left = 556
+          Height = 28
+          Top = 80
+          Width = 76
+          Anchors = [akTop, akRight]
+          MaxValue = 2000
+          MinValue = 5
+          TabOrder = 12
+          Value = 100
+        end
         object LblApiKey: TLabel
           Left = 12
           Height = 17
-          Top = 91
+          Top = 121
           Width = 100
           Caption = 'API Key (opt.):'
         end
         object EditApiKey: TEdit
           Left = 116
           Height = 28
-          Top = 85
-          Width = 280
+          Top = 116
+          Width = 468
           Anchors = [akTop, akLeft, akRight]
           EchoMode = emPassword
           PasswordChar = '*'
-          TabOrder = 10
-        end
-        object LblMaxCached: TLabel
-          Left = 408
-          Height = 17
-          Top = 91
-          Width = 94
-          Anchors = [akTop, akRight]
-          Caption = 'Max cached:'
-        end
-        object SpinMaxCached: TSpinEdit
-          Left = 508
-          Height = 28
-          Top = 85
-          Width = 74
-          Anchors = [akTop, akRight]
-          MaxValue = 2000
-          MinValue = 5
-          TabOrder = 11
-          Value = 100
+          TabOrder = 13
         end
         object BtnFetchWallHaven: TButton
           Left = 596
           Height = 28
-          Top = 85
+          Top = 116
           Width = 142
           Anchors = [akTop, akRight]
           Caption = 'Fetch Active Feeds'
           OnClick = BtnFetchWallHavenClick
-          TabOrder = 12
+          TabOrder = 14
         end
       end
       object GrpDarkFilter: TGroupBox
         Left = 16
-        Height = 142
-        Top = 316
+        Height = 132
+        Top = 338
         Width = 756
         Anchors = [akTop, akLeft, akRight]
         Caption = 'Universal Luminance Filter (Local PC Images + WallHaven.cc)'
-        ClientHeight = 122
+        ClientHeight = 112
         ClientWidth = 752
         TabOrder = 5
         object ChkDarkFilter: TCheckBox
@@ -279,7 +329,7 @@ object MainForm: TMainForm
         object LblMaxLum: TLabel
           Left = 12
           Height = 17
-          Top = 38
+          Top = 36
           Width = 356
           AutoSize = False
           Caption = 'Global max luminance: 38%'
@@ -287,7 +337,7 @@ object MainForm: TMainForm
         object TrackMaxLum: TTrackBar
           Left = 12
           Height = 30
-          Top = 58
+          Top = 56
           Width = 348
           Max = 80
           Min = 10
@@ -306,7 +356,7 @@ object MainForm: TMainForm
         object LblIconLum: TLabel
           Left = 384
           Height = 17
-          Top = 38
+          Top = 36
           Width = 356
           AutoSize = False
           Caption = 'Icon-zone max luminance (24%): 32%'
@@ -314,7 +364,7 @@ object MainForm: TMainForm
         object TrackIconLum: TTrackBar
           Left = 384
           Height = 30
-          Top = 58
+          Top = 56
           Width = 348
           Max = 75
           Min = 10
@@ -326,48 +376,58 @@ object MainForm: TMainForm
       object ChkSubfolders: TCheckBox
         Left = 16
         Height = 22
-        Top = 470
-        Width = 190
-        Caption = 'Include PC subfolders'
+        Top = 480
+        Width = 168
+        Caption = 'Include subfolders'
         TabOrder = 6
       end
       object ChkShuffle: TCheckBox
-        Left = 220
+        Left = 192
         Height = 22
-        Top = 470
-        Width = 190
+        Top = 480
+        Width = 126
         Caption = 'Shuffle order'
         TabOrder = 7
       end
+      object ChkDailyRecheck: TCheckBox
+        Left = 328
+        Height = 22
+        Top = 480
+        Width = 212
+        Caption = 'Auto-recheck sources daily'
+        Checked = True
+        State = cbChecked
+        TabOrder = 8
+      end
       object LblInterval: TLabel
-        Left = 430
+        Left = 548
         Height = 17
-        Top = 473
-        Width = 190
-        Caption = 'Change wallpaper every (min):'
+        Top = 483
+        Width = 132
+        Caption = 'Interval (min):'
       end
       object SpinIntervalMin: TSpinEdit
-        Left = 630
+        Left = 686
         Height = 28
-        Top = 468
+        Top = 478
         Width = 86
         MaxValue = 1440
         MinValue = 1
-        TabOrder = 8
+        TabOrder = 9
         Value = 15
       end
       object LblTransition: TLabel
         Left = 16
         Height = 17
-        Top = 507
+        Top = 519
         Width = 78
         Caption = 'Transition:'
       end
       object ComboTransition: TComboBox
-        Left = 100
+        Left = 96
         Height = 28
-        Top = 502
-        Width = 228
+        Top = 514
+        Width = 168
         ItemHeight = 0
         Items.Strings = (
           'None (instant)'
@@ -379,84 +439,117 @@ object MainForm: TMainForm
           'Random'
         )
         Style = csDropDownList
-        TabOrder = 9
+        TabOrder = 10
       end
       object LblTransitionDur: TLabel
-        Left = 346
+        Left = 276
         Height = 17
-        Top = 507
-        Width = 86
+        Top = 519
+        Width = 92
         Caption = 'Duration (ms):'
       end
       object SpinTransitionMs: TSpinEdit
-        Left = 438
+        Left = 370
         Height = 28
-        Top = 502
-        Width = 84
+        Top = 514
+        Width = 76
         Increment = 100
         MaxValue = 3000
         MinValue = 200
-        TabOrder = 10
+        TabOrder = 11
         Value = 600
       end
-      object ChkDailyRecheck: TCheckBox
-        Left = 542
-        Height = 22
-        Top = 505
-        Width = 230
-        Caption = 'Auto-recheck sources daily'
-        Checked = True
-        State = cbChecked
-        TabOrder = 11
+      object LblMultiMonitor: TLabel
+        Left = 460
+        Height = 17
+        Top = 519
+        Width = 72
+        Caption = 'Monitors:'
+      end
+      object ComboMultiMonitor: TComboBox
+        Left = 536
+        Height = 28
+        Top = 514
+        Width = 236
+        Anchors = [akTop, akLeft, akRight]
+        ItemHeight = 0
+        Items.Strings = (
+          'Primary (Mirror)'
+          'Per-Monitor (Distinct)'
+          'Span All Displays'
+        )
+        Style = csDropDownList
+        TabOrder = 12
       end
       object BtnPrevWallpaper: TButton
         Left = 16
         Height = 34
-        Top = 542
-        Width = 148
-        Caption = 'Previous Wallpaper'
+        Top = 554
+        Width = 104
+        Caption = 'Previous'
         OnClick = BtnPrevWallpaperClick
-        TabOrder = 12
-      end
-      object BtnPauseResume: TButton
-        Left = 174
-        Height = 34
-        Top = 542
-        Width = 156
-        Caption = 'Pause Slideshow'
-        OnClick = BtnPauseResumeClick
         TabOrder = 13
       end
-      object BtnNextWallpaper: TButton
-        Left = 340
+      object BtnPauseResume: TButton
+        Left = 126
         Height = 34
-        Top = 542
-        Width = 148
-        Caption = 'Next Wallpaper'
-        OnClick = BtnNextWallpaperClick
+        Top = 554
+        Width = 140
+        Caption = 'Pause Slideshow'
+        OnClick = BtnPauseResumeClick
         TabOrder = 14
       end
-      object BtnOpenWallHavenPage: TButton
-        Left = 498
+      object BtnNextWallpaper: TButton
+        Left = 272
         Height = 34
-        Top = 542
-        Width = 200
+        Top = 554
+        Width = 92
+        Caption = 'Next'
+        OnClick = BtnNextWallpaperClick
+        TabOrder = 15
+      end
+      object BtnFavorite: TButton
+        Left = 372
+        Height = 34
+        Top = 554
+        Width = 122
+        Caption = 'Save Favorite'
+        OnClick = BtnFavoriteClick
+        TabOrder = 16
+      end
+      object BtnBlacklist: TButton
+        Left = 500
+        Height = 34
+        Top = 554
+        Width = 104
+        Caption = 'Blacklist'
+        OnClick = BtnBlacklistClick
+        TabOrder = 17
+      end
+      object BtnOpenWallHavenPage: TButton
+        Left = 610
+        Height = 34
+        Top = 554
+        Width = 162
+        Anchors = [akTop, akRight]
         Caption = 'WallHaven.cc Info'
         Enabled = False
         OnClick = MnuOpenWallHavenPageClick
-        TabOrder = 15
+        TabOrder = 18
       end
       object LblCurrentFile: TLabel
         Left = 16
         Height = 17
-        Top = 586
-        Width = 740
+        Top = 598
+        Width = 756
+        Anchors = [akTop, akLeft, akRight]
+        AutoSize = False
         Caption = 'Active wallpaper: none'
       end
     end
     object TabOverlay: TTabSheet
       Caption = 'Date & Time Overlay'
-      ClientHeight = 617
+      ClientHeight = 669
       ClientWidth = 788
       object ChkOverlayEnabled: TCheckBox
         Left = 16
@@ -672,26 +765,26 @@ object MainForm: TMainForm
     end
     object TabSystem: TTabSheet
       Caption = 'System & Logs'
-      ClientHeight = 617
+      ClientHeight = 669
       ClientWidth = 788
       object LblDetectedDE: TLabel
         Left = 16
         Height = 17
-        Top = 16
+        Top = 14
         Width = 420
         Caption = 'Detected environment: ...'
       end
       object LblBackendMode: TLabel
         Left = 16
         Height = 17
-        Top = 48
+        Top = 42
         Width = 180
         Caption = 'Linux Desktop Backend:'
       end
       object ComboBackend: TComboBox
         Left = 208
         Height = 28
-        Top = 42
+        Top = 36
         Width = 260
         ItemHeight = 0
         Items.Strings = (
@@ -716,36 +809,74 @@ object MainForm: TMainForm
       object ChkStartMinimized: TCheckBox
         Left = 16
         Height = 22
-        Top = 84
+        Top = 78
         Width = 280
         Caption = 'Start minimized to Tray Icon'
         TabOrder = 1
       end
       object ChkAutoStart: TCheckBox
-        Left = 16
+        Left = 308
         Height = 22
-        Top = 112
-        Width = 440
-        Caption = 'Launch automatically on login (Windows / Linux XDG Autostart)'
+        Top = 78
+        Width = 464
+        Caption = 'Launch automatically on login (Windows / XDG Autostart)'
         OnChange = ChkAutoStartChange
         TabOrder = 2
       end
+      object ChkSmartPauseFullscreen: TCheckBox
+        Left = 16
+        Height = 22
+        Top = 106
+        Width = 350
+        Caption = 'Smart Pause during fullscreen apps / games'
+        Checked = True
+        State = cbChecked
+        TabOrder = 3
+      end
+      object ChkSmartPauseBattery: TCheckBox
+        Left = 376
+        Height = 22
+        Top = 106
+        Width = 390
+        Caption = 'Smart Pause when running on battery'
+        Checked = True
+        State = cbChecked
+        TabOrder = 4
+      end
+      object BtnOpenFavorites: TButton
+        Left = 16
+        Height = 30
+        Top = 138
+        Width = 200
+        Caption = 'Open Favorites Folder'
+        OnClick = BtnOpenFavoritesClick
+        TabOrder = 5
+      end
+      object BtnClearBlacklist: TButton
+        Left = 228
+        Height = 30
+        Top = 138
+        Width = 220
+        Caption = 'Clear Blacklist (0)'
+        OnClick = BtnClearBlacklistClick
+        TabOrder = 6
+      end
       object MemoLog: TMemo
         Left = 16
-        Height = 448
-        Top = 148
+        Height = 476
+        Top = 176
         Width = 756
         Anchors = [akTop, akLeft, akRight, akBottom]
         ReadOnly = True
         ScrollBars = ssVertical
-        TabOrder = 3
+        TabOrder = 7
       end
     end
   end
   object BtnSavePrefs: TButton
     Left = 628
     Height = 36
-    Top = 670
+    Top = 722
     Width = 180
     Anchors = [akRight, akBottom]
     Caption = 'Save & Apply'
@@ -786,6 +917,14 @@ object MainForm: TMainForm
       Caption = 'Pause Slideshow'
       OnClick = BtnPauseResumeClick
     end
+    object MnuFavorite: TMenuItem
+      Caption = 'Save Current to Favorites'
+      OnClick = BtnFavoriteClick
+    end
+    object MnuBlacklist: TMenuItem
+      Caption = 'Blacklist Current Wallpaper'
+      OnClick = BtnBlacklistClick
+    end
     object MnuFetchWH: TMenuItem
       Caption = 'Fetch WallHaven Sources'
       OnClick = BtnFetchWallHavenClick
@@ -794,6 +933,10 @@ object MainForm: TMainForm
       Caption = 'Open Info on WallHaven.cc'
       Enabled = False
       OnClick = MnuOpenWallHavenPageClick
+    end
+    object MnuOpenFavorites: TMenuItem
+      Caption = 'Open Favorites Folder'
+      OnClick = BtnOpenFavoritesClick
     end
     object MnuShowPrefs: TMenuItem
       Caption = 'Preferences...'
