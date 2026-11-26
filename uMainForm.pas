@@ -1283,7 +1283,7 @@ var
   Stats: TWallHavenFetchStats;
   Files, Logs: TStringList;
   I: Integer;
-  SelectFirst, IsDailyAuto: Boolean;
+  aSelectFirst, IsDailyAuto: Boolean;
   PrevImg: string;
 begin
   if FFetchThread = nil then Exit;
@@ -1302,7 +1302,7 @@ begin
 
   Files := TStringList.Create;
   try
-    FFetchThread.ConsumeResult(Stats, Files, SelectFirst, IsDailyAuto);
+    FFetchThread.ConsumeResult(Stats, Files, aSelectFirst, IsDailyAuto);
     FFetchThread.WaitFor;
     FreeAndNil(FFetchThread);
 
@@ -1330,7 +1330,7 @@ begin
       FConfig.Save;
     end;
 
-    if SelectFirst and (Files.Count > 0) then
+    if aSelectFirst and (Files.Count > 0) then
     begin
       PrevImg := FCurrentSourceImage;
       FCurrentSourceImage := Files[0];
