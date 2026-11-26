@@ -42,6 +42,11 @@ function SetAutoStartEnabled(Enabled: Boolean; out Msg: string): Boolean;
 
 implementation
 
+{$IFDEF WINDOWS}
+uses
+  Forms;
+{$ENDIF}
+
 {$IFDEF UNIX}
 function ExecCmd(const Exe: string; const Params: array of string;
   out OutputStr: string; WaitExit: Boolean = True): Boolean;
@@ -899,8 +904,8 @@ var
   ClassBuf: array[0..255] of WideChar;
   ClsName: string;
   WinRect: TRect;
-  HMon: HMONITOR;
-  MonInfo: TMonitorInfo;
+  I, MonW, MonH: Integer;
+  Mon: TMonitor;
 begin
   Result := False;
   FG := GetForegroundWindow;
@@ -922,17 +927,29 @@ begin
   end;
 
   if not GetWindowRect(FG, WinRect) then Exit;
-  HMon := MonitorFromWindow(FG, MONITOR_DEFAULTTONEAREST);
-  if HMon = 0 then Exit;
 
-  FillChar(MonInfo, SizeOf(MonInfo), 0);
-  MonInfo.cbSize := SizeOf(MonInfo);
-  if not GetMonitorInfoW(HMon, @MonInfo) then Exit;
-
-  Result := (WinRect.Left <= MonInfo.rcMonitor.Left) and
-            (WinRect.Top <= MonInfo.rcMonitor.Top) and
-            (WinRect.Right >= MonInfo.rcMonitor.Right) and
-            (WinRect.Bottom >= MonInfo.rcMonitor.Bottom);
+  if Assigned(Screen) and (Screen.MonitorCount > 0) then
+  begin
+    for I := 0 to Screen.MonitorCount - 1 do
+    begin
+      Mon := Screen.Monitors[I];
+      if (WinRect.Left <= Mon.Left) and
+         (WinRect.Top <= Mon.Top) and
+         (WinRect.Right >= (Mon.Left + Mon.Width)) and
+         (WinRect.Bottom >= (Mon.Top + Mon.Height)) then
+        Exit(True);
+    end;
+  end
+  else
+  begin
+    MonW := GetSystemMetrics(SM_CXSCREEN);
+    MonH := GetSystemMetrics(SM_CYSCREEN);
+    Result := (MonW > 0) and (MonH > 0) and
+              (WinRect.Left <= 0) and
+              (WinRect.Top <= 0) and
+              (WinRect.Right >= MonW) and
+              (WinRect.Bottom >= MonH);
+  end;
 end;
 {$ENDIF}
 {$IFDEF UNIX}
