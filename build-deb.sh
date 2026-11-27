@@ -16,10 +16,12 @@ fi
 mkdir -p "$STAGE_DIR/DEBIAN" \
          "$STAGE_DIR/usr/bin" \
          "$STAGE_DIR/usr/share/applications" \
+         "$STAGE_DIR/usr/share/icons/hicolor/512x512/apps" \
          "$STAGE_DIR/usr/share/doc/$PKG_NAME"
 
 install -m 755 "bin/WallCycle" "$STAGE_DIR/usr/bin/wallcycle"
 install -m 644 "wallcycle.desktop" "$STAGE_DIR/usr/share/applications/wallcycle.desktop"
+install -m 644 "wallcycle.png" "$STAGE_DIR/usr/share/icons/hicolor/512x512/apps/wallcycle.png"
 install -m 644 "README.md" "$STAGE_DIR/usr/share/doc/$PKG_NAME/README.md"
 
 cat > "$STAGE_DIR/DEBIAN/control" <<EOF

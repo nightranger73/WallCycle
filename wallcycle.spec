@@ -26,11 +26,13 @@ Blacklist, and backends for GNOME, KDE Plasma, XFCE, Hyprland, Sway, Niri, and U
 rm -rf %{buildroot}
 install -Dm755 %{_sourcedir}/WallCycle %{buildroot}%{_bindir}/wallcycle
 install -Dm644 %{_sourcedir}/wallcycle.desktop %{buildroot}%{_datadir}/applications/wallcycle.desktop
+install -Dm644 %{_sourcedir}/wallcycle.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/wallcycle.png
 install -Dm644 %{_sourcedir}/README.md %{buildroot}%{_docdir}/%{name}/README.md
 
 %files
 %{_bindir}/wallcycle
 %{_datadir}/applications/wallcycle.desktop
+%{_datadir}/icons/hicolor/512x512/apps/wallcycle.png
 %{_docdir}/%{name}/README.md
 
 %changelog

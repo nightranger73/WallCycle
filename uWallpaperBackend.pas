@@ -1155,7 +1155,7 @@ begin
         SL.Add('Name=WallCycle');
         SL.Add('Comment=Desktop wallpaper slideshow with real-time clock overlay');
         SL.Add('Exec="' + ParamStr(0) + '"');
-        SL.Add('Icon=preferences-desktop-wallpaper');
+        SL.Add('Icon=wallcycle');
         SL.Add('Terminal=false');
         SL.Add('Categories=Utility;DesktopSettings;');
         SL.Add('X-GNOME-Autostart-enabled=true');

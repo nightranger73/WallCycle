@@ -19,6 +19,8 @@ PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=dist-installer
 OutputBaseFilename=WallCycle-Setup-{#AppVersion}-x64
 WizardStyle=modern
+SetupIconFile=WallCycle.ico
+UninstallDisplayIcon={app}\WallCycle.exe
 
 [Languages]
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"

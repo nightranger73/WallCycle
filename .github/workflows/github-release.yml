@@ -85,6 +85,7 @@ jobs:
 
           cp bin/WallCycle "$RPMTOP/SOURCES/WallCycle"
           cp wallcycle.desktop "$RPMTOP/SOURCES/wallcycle.desktop"
+          cp wallcycle.png "$RPMTOP/SOURCES/wallcycle.png"
           cp README.md "$RPMTOP/SOURCES/README.md"
           rpmbuild -bb --define "_topdir $RPMTOP" --define "_version ${{ needs.resolve-version.outputs.version }}" wallcycle.spec
           cp "$RPMTOP"/RPMS/x86_64/wallcycle-*.rpm "wallcycle-${{ needs.resolve-version.outputs.version }}-1.fedora.x86_64.rpm"
@@ -117,6 +118,7 @@ jobs:
 
           cp bin/WallCycle "$RPMTOP/SOURCES/WallCycle"
           cp wallcycle.desktop "$RPMTOP/SOURCES/wallcycle.desktop"
+          cp wallcycle.png "$RPMTOP/SOURCES/wallcycle.png"
           cp README.md "$RPMTOP/SOURCES/README.md"
           rpmbuild -bb --define "_topdir $RPMTOP" --define "_version ${{ needs.resolve-version.outputs.version }}" wallcycle.spec
           cp "$RPMTOP"/RPMS/x86_64/wallcycle-*.rpm "wallcycle-${{ needs.resolve-version.outputs.version }}-1.opensuse.x86_64.rpm"
@@ -166,7 +168,7 @@ jobs:
           rm -rf /tmp/AppDir dist-appimage
           mkdir -p /tmp/AppDir/usr/bin /tmp/AppDir/usr/lib /tmp/AppDir/usr/plugins \
                    /tmp/AppDir/usr/share/applications \
-                   /tmp/AppDir/usr/share/icons/hicolor/scalable/apps dist-appimage
+                   /tmp/AppDir/usr/share/icons/hicolor/512x512/apps dist-appimage
 
           install -Dm755 bin/WallCycle /tmp/AppDir/usr/bin/wallcycle
           install -Dm644 wallcycle.desktop /tmp/AppDir/usr/share/applications/wallcycle.desktop
@@ -182,8 +184,7 @@ jobs:
           done
           printf '[Paths]\nPrefix = ..\nPlugins = plugins\n' > /tmp/AppDir/usr/bin/qt.conf
 
-          printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#182234"/><circle cx="22" cy="24" r="7" fill="#60a5fa"/><path d="M8 52L24 34l12 12 8-8 12 14H8z" fill="#3b82f6"/></svg>' \
-            > /tmp/AppDir/usr/share/icons/hicolor/scalable/apps/preferences-desktop-wallpaper.svg
+          install -Dm644 wallcycle.png /tmp/AppDir/usr/share/icons/hicolor/512x512/apps/wallcycle.png
 
           curl -L -o /tmp/linuxdeploy-x86_64.AppImage \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
@@ -196,7 +197,7 @@ jobs:
             --executable /tmp/AppDir/usr/bin/wallcycle \
             ${QT6PAS_LIB:+--library "$QT6PAS_LIB"} \
             --desktop-file /tmp/AppDir/usr/share/applications/wallcycle.desktop \
-            --icon-file /tmp/AppDir/usr/share/icons/hicolor/scalable/apps/preferences-desktop-wallpaper.svg \
+            --icon-file /tmp/AppDir/usr/share/icons/hicolor/512x512/apps/wallcycle.png \
             --output appimage
           popd
 

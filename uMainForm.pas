@@ -234,6 +234,7 @@ type
     procedure UpdateWallHavenInfoActions;
     procedure OpenCurrentWallHavenPage;
     procedure SetPausedState(APaused: Boolean);
+    procedure LoadAppAndTrayIcon;
     procedure HandleCommandArgs(const Args: array of string; FromOtherInstance: Boolean);
   end;
 
@@ -439,6 +440,7 @@ begin
   ConfigToUI;
   LblDetectedDE.Caption := 'Detected environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
 
+  LoadAppAndTrayIcon;
   TrayIcon1.Hint := 'WallCycle — Click: next wallpaper';
   TrayIcon1.Visible := True;
   UpdateWallHavenInfoActions;
@@ -480,6 +482,94 @@ begin
     CanClose := False;
     Hide;
     TrayIcon1.ShowBalloonHint;
+  end;
+end;
+
+procedure TMainForm.LoadAppAndTrayIcon;
+var
+  AppDir, IcoPath, PngPath: string;
+  Candidates: array[0..4] of string;
+  Idx: Integer;
+  Pic: TPicture;
+  TempBmp: TBitmap;
+  IL: TImageList;
+begin
+  if Application.Icon.Empty then
+  begin
+    try
+      Application.Icon.LoadFromResourceName(HInstance, 'MAINICON');
+    except
+      // Ignore if MAINICON resource was not linked
+    end;
+  end;
+
+  AppDir := ExtractFilePath(ParamStr(0));
+  if Application.Icon.Empty then
+  begin
+    IcoPath := AppDir + 'WallCycle.ico';
+    if not FileExists(IcoPath) then
+      IcoPath := ExpandFileName(AppDir + '..' + DirectorySeparator + 'WallCycle.ico');
+    if FileExists(IcoPath) then
+    begin
+      try
+        Application.Icon.LoadFromFile(IcoPath);
+      except
+      end;
+    end;
+  end;
+
+  if Application.Icon.Empty then
+  begin
+    Candidates[0] := AppDir + 'wallcycle.png';
+    Candidates[1] := ExpandFileName(AppDir + '..' + DirectorySeparator + 'wallcycle.png');
+    Candidates[2] := ExpandFileName(AppDir + '..' + DirectorySeparator + 'share' +
+      DirectorySeparator + 'icons' + DirectorySeparator + 'hicolor' +
+      DirectorySeparator + '512x512' + DirectorySeparator + 'apps' +
+      DirectorySeparator + 'wallcycle.png');
+    Candidates[3] := '/usr/share/icons/hicolor/512x512/apps/wallcycle.png';
+    Candidates[4] := '/usr/share/pixmaps/wallcycle.png';
+
+    PngPath := '';
+    for Idx := Low(Candidates) to High(Candidates) do
+    begin
+      if FileExists(Candidates[Idx]) then
+      begin
+        PngPath := Candidates[Idx];
+        Break;
+      end;
+    end;
+
+    if PngPath <> '' then
+    begin
+      Pic := TPicture.Create;
+      TempBmp := TBitmap.Create;
+      try
+        try
+          Pic.LoadFromFile(PngPath);
+          if (Pic.Width > 0) and (Pic.Height > 0) then
+          begin
+            TempBmp.Assign(Pic.Graphic);
+            IL := TImageList.CreateSize(TempBmp.Width, TempBmp.Height);
+            try
+              IL.Add(TempBmp, nil);
+              IL.GetIcon(0, Application.Icon);
+            finally
+              IL.Free;
+            end;
+          end;
+        except
+        end;
+      finally
+        TempBmp.Free;
+        Pic.Free;
+      end;
+    end;
+  end;
+
+  if not Application.Icon.Empty then
+  begin
+    Self.Icon.Assign(Application.Icon);
+    TrayIcon1.Icon.Assign(Application.Icon);
   end;
 end;
 
