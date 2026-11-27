@@ -170,6 +170,7 @@ jobs:
 
           install -Dm755 bin/WallCycle /tmp/AppDir/usr/bin/wallcycle
           install -Dm644 wallcycle.desktop /tmp/AppDir/usr/share/applications/wallcycle.desktop
+          sed -i 's|^Exec=/usr/bin/wallcycle|Exec=wallcycle|g' /tmp/AppDir/usr/share/applications/wallcycle.desktop
           cp -av /usr/local/lib/libQt6Pas.so* /tmp/AppDir/usr/lib/ 2>/dev/null || \
             cp -av /usr/lib/*/libQt6Pas.so* /tmp/AppDir/usr/lib/ 2>/dev/null || true
 
