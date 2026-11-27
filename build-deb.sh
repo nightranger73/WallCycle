@@ -9,7 +9,7 @@ STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGE_DIR"' EXIT
 
 if [[ ! -f "bin/WallCycle" ]]; then
-  echo "Error: bin/WallCycle binary not found. Build first with lazbuild --widgetset=qt6 --build-mode=Release WallCycle.lpi" >&2
+  echo "Error: bin/WallCycle binary not found. Build first with lazbuild --widgetset=qt5 --build-mode=Release WallCycle.lpi" >&2
   exit 1
 fi
 
@@ -28,7 +28,7 @@ Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: $ARCH
-Depends: libqt6pas6, curl | wget
+Depends: libqt5pas1 | libqt5pas1t64, curl | wget
 Recommends: awww | hyprpaper | sway | feh
 Maintainer: Federico Paolini <nightranger7@gmail.com>
 Description: Cross-platform desktop wallpaper slideshow with clock overlay
