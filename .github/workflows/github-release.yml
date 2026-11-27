@@ -143,7 +143,10 @@ jobs:
           sudo apt-get install -y qt6-base-dev qt6-wayland qmake6 build-essential patchelf desktop-file-utils curl
           CBINDINGS_PRO="$(find "$HOME" /usr /opt -name 'Qt6Pas.pro' 2>/dev/null | head -n 1)"
           echo "Building Qt6Pas from: $CBINDINGS_PRO"
-          pushd "$(dirname "$CBINDINGS_PRO")"
+          rm -rf /tmp/qt6pas-build
+          cp -r "$(dirname "$CBINDINGS_PRO")" /tmp/qt6pas-build
+          chmod -R u+w /tmp/qt6pas-build
+          pushd /tmp/qt6pas-build
           qmake6 Qt6Pas.pro
           make -j"$(nproc)"
           sudo make install
@@ -161,13 +164,22 @@ jobs:
         run: |
           VER="${{ needs.resolve-version.outputs.version }}"
           rm -rf /tmp/AppDir dist-appimage
-          mkdir -p /tmp/AppDir/usr/bin /tmp/AppDir/usr/lib /tmp/AppDir/usr/share/applications \
+          mkdir -p /tmp/AppDir/usr/bin /tmp/AppDir/usr/lib /tmp/AppDir/usr/plugins \
+                   /tmp/AppDir/usr/share/applications \
                    /tmp/AppDir/usr/share/icons/hicolor/scalable/apps dist-appimage
 
           install -Dm755 bin/WallCycle /tmp/AppDir/usr/bin/wallcycle
           install -Dm644 wallcycle.desktop /tmp/AppDir/usr/share/applications/wallcycle.desktop
           cp -av /usr/local/lib/libQt6Pas.so* /tmp/AppDir/usr/lib/ 2>/dev/null || \
             cp -av /usr/lib/*/libQt6Pas.so* /tmp/AppDir/usr/lib/ 2>/dev/null || true
+
+          QT6_PLUGINS="$(qtpaths6 --query QT_INSTALL_PLUGINS 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/qt6/plugins)"
+          for pdir in platforms wayland-shell-integration wayland-graphics-integration-client wayland-decoration-client imageformats platformthemes; do
+            if [ -d "$QT6_PLUGINS/$pdir" ]; then
+              cp -r "$QT6_PLUGINS/$pdir" /tmp/AppDir/usr/plugins/
+            fi
+          done
+          printf '[Paths]\nPrefix = ..\nPlugins = plugins\n' > /tmp/AppDir/usr/bin/qt.conf
 
           printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#182234"/><circle cx="22" cy="24" r="7" fill="#60a5fa"/><path d="M8 52L24 34l12 12 8-8 12 14H8z" fill="#3b82f6"/></svg>' \
             > /tmp/AppDir/usr/share/icons/hicolor/scalable/apps/preferences-desktop-wallpaper.svg
