@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, Types, DateUtils, Forms, Controls, Graphics, Dialogs, ComCtrls, StdCtrls,
   ExtCtrls, Spin, Menus, CheckLst, Math, LCLType, LCLIntf, UniqueInstance,
   uConfig, uLuminanceFilter, uPlaylistScanner, uImageOverlay,
-  uWallpaperBackend, uWallHavenClient;
+  uWallpaperBackend, uWallHavenClient, uShaderEngine, uLiveWallpaper;
 
 type
   TMainForm = class(TForm)
@@ -110,6 +110,7 @@ type
     ChkAutoStart: TCheckBox;
     ChkSmartPauseFullscreen: TCheckBox;
     ChkSmartPauseBattery: TCheckBox;
+    ChkUseOpenGLEngine: TCheckBox;
     BtnOpenFavorites: TButton;
     BtnClearBlacklist: TButton;
     BtnSavePrefs: TButton;
@@ -194,8 +195,13 @@ type
     FTransitionToken: Integer;
     FLastDailyRecheckAttemptUtc: Int64;
     FStartupRecheckPending: Boolean;
+    FLiveEngineActiveLogged: Boolean;
+    FLiveEngineFallbackLogged: Boolean;
 
     procedure LogMsg(const S: string);
+    function ShouldUseLiveEngine: Boolean;
+    procedure SyncLiveEngineLifecycle(ForceRestartIfFailed: Boolean = False);
+    procedure PollLiveEngineStatus;
     procedure SyncChecklistFromConfig;
     procedure LoadUIToConfig;
     procedure ConfigToUI;
@@ -400,6 +406,62 @@ begin
     Result := '1920x1080';
 end;
 
+function TMainForm.ShouldUseLiveEngine: Boolean;
+begin
+  Result := FConfig.UseOpenGLEngine or (FConfig.LinuxBackend = lbOpenGLLayer);
+end;
+
+procedure TMainForm.SyncLiveEngineLifecycle(ForceRestartIfFailed: Boolean);
+var
+  St: TLiveEngineStatus;
+  Msg: string;
+begin
+  St := GetLiveEngineStatus(Msg);
+  if ShouldUseLiveEngine then
+  begin
+    if (St = lesFailed) and ForceRestartIfFailed then
+    begin
+      StopLiveWallpaperEngine;
+      St := lesStopped;
+    end;
+    if St = lesStopped then
+    begin
+      FLiveEngineActiveLogged := False;
+      FLiveEngineFallbackLogged := False;
+      StartLiveWallpaperEngine;
+    end;
+  end
+  else
+  begin
+    if St <> lesStopped then
+    begin
+      StopLiveWallpaperEngine;
+      LogMsg('OpenGL 3.3 Live Engine stopped (using classic OS wallpaper backend).');
+    end;
+    FLiveEngineActiveLogged := False;
+    FLiveEngineFallbackLogged := False;
+  end;
+end;
+
+procedure TMainForm.PollLiveEngineStatus;
+var
+  St: TLiveEngineStatus;
+  Msg: string;
+begin
+  if not ShouldUseLiveEngine then Exit;
+  St := GetLiveEngineStatus(Msg);
+  if (St = lesReady) and (not FLiveEngineActiveLogged) then
+  begin
+    FLiveEngineActiveLogged := True;
+    LogMsg('OpenGL 3.3 Live Engine active: ' + Msg);
+  end
+  else if (St = lesFailed) and (not FLiveEngineFallbackLogged) then
+  begin
+    FLiveEngineFallbackLogged := True;
+    LogMsg('OpenGL 3.3 Live Engine unavailable (' + Msg + ') — using classic OS backend fallback.');
+  end;
+end;
+
 procedure TMainForm.FormCreate(Sender: TObject);
 var
   CacheFile: string;
@@ -434,11 +496,15 @@ begin
   FTransitionToken := 0;
   FLastDailyRecheckAttemptUtc := 0;
   FStartupRecheckPending := True;
+  FLiveEngineActiveLogged := False;
+  FLiveEngineFallbackLogged := False;
 
   Randomize;
   PopulateSystemFonts;
   ConfigToUI;
   LblDetectedDE.Caption := 'Detected environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
+
+  SyncLiveEngineLifecycle;
 
   LoadAppAndTrayIcon;
   TrayIcon1.Hint := 'WallCycle — Click: next wallpaper';
@@ -468,6 +534,7 @@ begin
   TickTimer.Enabled := False;
   StopWallHavenFetch;
   StopAsyncScan;
+  StopLiveWallpaperEngine;
   FMonitorImages.Free;
   FHistory.Free;
   FPlaylist.Free;
@@ -499,7 +566,6 @@ begin
     try
       Application.Icon.LoadFromResourceName(HInstance, 'MAINICON');
     except
-      // Ignore if MAINICON resource was not linked
     end;
   end;
 
@@ -616,6 +682,9 @@ begin
   else
     BaseLabel := 'Active wallpaper: ' + ExtractFileName(FCurrentSourceImage);
 
+  if ShouldUseLiveEngine and IsLiveEngineReady then
+    BaseLabel := BaseLabel + '  [OpenGL 3.3]';
+
   if FPaused then
     BaseLabel := BaseLabel + '  [Paused]'
   else if FSmartPaused then
@@ -633,7 +702,6 @@ begin
   else if FSmartPaused then
     TooltipText := TooltipText + ' [Smart Pause]';
 
-  // Keep under Windows NOTIFYICONDATA 128-char szTip limit
   if Length(TooltipText) > 120 then
     TooltipText := Copy(TooltipText, 1, 117) + '...';
   TrayIcon1.Hint := TooltipText;
@@ -647,10 +715,10 @@ begin
     ChkSubfolders.Checked := FConfig.IncludeSubfolders;
     ChkShuffle.Checked := FConfig.ShuffleOrder;
     SpinIntervalMin.Value := FConfig.IntervalMinutes;
-    ComboTransition.ItemIndex := Ord(FConfig.TransitionStyle);
+    ComboTransition.ItemIndex := EnsureRange(Ord(FConfig.TransitionStyle), 0, ComboTransition.Items.Count - 1);
     SpinTransitionMs.Value := EnsureRange(FConfig.TransitionDurationMs,
       SpinTransitionMs.MinValue, SpinTransitionMs.MaxValue);
-    ComboMultiMonitor.ItemIndex := Ord(FConfig.MultiMonitorMode);
+    ComboMultiMonitor.ItemIndex := EnsureRange(Ord(FConfig.MultiMonitorMode), 0, ComboMultiMonitor.Items.Count - 1);
     ChkDailyRecheck.Checked := FConfig.DailySourceRecheck;
 
     EditApiKey.Text := FConfig.WallHavenApiKey;
@@ -673,7 +741,7 @@ begin
     UpdateLuminanceLabels;
 
     ChkOverlayEnabled.Checked := FConfig.OverlayEnabled;
-    RadioCorner.ItemIndex := Ord(FConfig.OverlayCorner);
+    RadioCorner.ItemIndex := EnsureRange(Ord(FConfig.OverlayCorner), 0, RadioCorner.Items.Count - 1);
     EditDateFmt.Text := FConfig.OverlayDateFormat;
     EditTimeFmt.Text := FConfig.OverlayTimeFormat;
     ChkShowSeconds.Checked := FConfig.OverlayShowSeconds;
@@ -687,7 +755,8 @@ begin
     LblOpacity.Enabled := TrackOpacity.Enabled;
     SpinMargin.Value := FConfig.OverlayMarginPx;
 
-    ComboBackend.ItemIndex := Ord(FConfig.LinuxBackend);
+    ComboBackend.ItemIndex := EnsureRange(Ord(FConfig.LinuxBackend), 0, ComboBackend.Items.Count - 1);
+    ChkUseOpenGLEngine.Checked := FConfig.UseOpenGLEngine;
     ChkStartMinimized.Checked := FConfig.StartMinimized;
     ChkAutoStart.Checked := IsAutoStartEnabled or FConfig.AutoStart;
     ChkSmartPauseFullscreen.Checked := FConfig.SmartPauseFullscreen;
@@ -763,6 +832,7 @@ begin
 
   if ComboBackend.ItemIndex >= 0 then
     FConfig.LinuxBackend := TLinuxBackendMode(ComboBackend.ItemIndex);
+  FConfig.UseOpenGLEngine := ChkUseOpenGLEngine.Checked;
   FConfig.StartMinimized := ChkStartMinimized.Checked;
   FConfig.AutoStart := ChkAutoStart.Checked;
   FConfig.SmartPauseFullscreen := ChkSmartPauseFullscreen.Checked;
@@ -874,7 +944,6 @@ begin
 
   if FSmartPaused and (FConfig.SmartPauseFullscreen or FConfig.SmartPauseOnBattery) then
   begin
-    // Lightweight poll every 4s to auto-resume immediately when exiting game or plugging AC power
     TickTimer.Interval := 4000;
     TickTimer.Enabled := True;
     Exit;
@@ -893,7 +962,6 @@ begin
     Exit;
   end;
 
-  // Align precisely to the :00 second boundary, then tick once per minute (or 5s when Smart Pause watches)
   DecodeTime(Now, H, M, S, MS);
   MsToNextMinute := (Int64(60 - S) * 1000) - Int64(MS) + 50;
   if MsToNextMinute < 250 then
@@ -933,7 +1001,6 @@ begin
 
   NewList := TStringList.Create;
   try
-    // Phase 1 ready: immediate playlist populated without blocking UI
     if FScanThread.ConsumeDiscoveredList(NewList) then
     begin
       FPlaylist.Assign(NewList);
@@ -948,7 +1015,6 @@ begin
       end;
     end;
 
-    // Phase 2 ready: full pre-filtered dark list completed in background
     if FScanThread.ConsumeEligibleList(NewList) then
     begin
       FPlaylist.Assign(NewList);
@@ -1050,7 +1116,6 @@ begin
       TargetList.Add(Cand);
   end;
 
-  // Fallback sequentially if random probe missed remaining distinct images
   if TargetList.Count < MonCount then
   begin
     for I := 0 to FPlaylist.Count - 1 do
@@ -1076,6 +1141,8 @@ var
   OutPaths: TStringList;
   I: Integer;
   PerMonFiles: Boolean;
+  NextBmp: TBitmap;
+  NextTex: TShaderTextureData;
 begin
   if (FCurrentSourceImage = '') or (not FileExists(FCurrentSourceImage)) then Exit;
 
@@ -1090,6 +1157,32 @@ begin
   for I := 0 to FMonitorImages.Count - 1 do
     MonPaths[I] := FMonitorImages[I];
 
+  // Live OpenGL 3.3 GPU path (skip 1s clock redraw while an animated shader is mid-flight)
+  if ShouldUseLiveEngine and WaitForLiveEngineReady(400) and IsLiveEngineReady then
+  begin
+    if IsLiveEngineTransitioning then Exit;
+    NextBmp := CreateMultiMonitorCompositeBitmap(MonPaths, FConfig.MultiMonitorMode, FConfig);
+    if NextBmp = nil then
+    begin
+      LogMsg('Overlay rendering error on: ' + FCurrentSourceImage);
+      Exit;
+    end;
+    try
+      NextTex := BitmapToShaderTexture(NextBmp);
+    finally
+      NextBmp.Free;
+    end;
+    if Length(NextTex.RGB) > 0 then
+    begin
+      LivePresentImmediate(NextTex);
+      UpdateCurrentStatusUI;
+      Exit;
+    end;
+  end
+  else
+    PollLiveEngineStatus;
+
+  // Classic OS wallpaper backend fallback
   RenderDir := IncludeTrailingPathDelimiter(GetAppConfigDir(False)) + 'rendered';
   PerMonFiles := (FConfig.MultiMonitorMode = mmIndependent) and
                  Assigned(Screen) and (Screen.MonitorCount > 1) and
@@ -1128,6 +1221,7 @@ var
   Res: TBackendResult;
   H, M, S, MS: Word;
   NextBmp, PrevBmp: TBitmap;
+  NextTex, PrevTex: TShaderTextureData;
   ActiveTrans: TWallpaperTransition;
   Steps, StepDelay, I, MyToken: Integer;
   Progress, Eased: Double;
@@ -1151,6 +1245,84 @@ begin
   for I := 0 to FMonitorImages.Count - 1 do
     CurMonArr[I] := FMonitorImages[I];
 
+  // Primary GPU path: OpenGL 3.3 Core GLSL Shader Engine (60 FPS)
+  if ShouldUseLiveEngine and WaitForLiveEngineReady(1500) and IsLiveEngineReady then
+  begin
+    NextBmp := CreateMultiMonitorCompositeBitmap(CurMonArr, FConfig.MultiMonitorMode, FConfig);
+    if NextBmp = nil then
+    begin
+      LogMsg('Overlay rendering error on: ' + FCurrentSourceImage);
+      Exit;
+    end;
+    try
+      NextTex := BitmapToShaderTexture(NextBmp);
+    finally
+      NextBmp.Free;
+    end;
+
+    if Length(NextTex.RGB) > 0 then
+    begin
+      ActiveTrans := FConfig.TransitionStyle;
+      if ActiveTrans = wtRandom then
+      begin
+        case Random(10) of
+          0: ActiveTrans := wtFade;
+          1: ActiveTrans := wtWipe;
+          2: ActiveTrans := wtLeft;
+          3: ActiveTrans := wtRight;
+          4: ActiveTrans := wtCenter;
+          5: ActiveTrans := wtFilmBurn;
+          6: ActiveTrans := wtNaturalWave;
+          7: ActiveTrans := wtRainMelt;
+          8: ActiveTrans := wtInkDissolve;
+        else
+          ActiveTrans := wtPrismWipe;
+        end;
+      end;
+
+      if (ActiveTrans = wtNone) or (PrevSourceImage = '') or
+         SameFileName(PrevSourceImage, FCurrentSourceImage) or (not FileExists(PrevSourceImage)) then
+      begin
+        LivePresentImmediate(NextTex);
+        UpdateCurrentStatusUI;
+        Exit;
+      end;
+
+      PrevTex.Width := 0;
+      PrevTex.Height := 0;
+      SetLength(PrevTex.RGB, 0);
+      if not HasLiveEnginePreviousFrame then
+      begin
+        if (PrevMonList <> nil) and (PrevMonList.Count > 0) then
+        begin
+          SetLength(PrevMonArr, PrevMonList.Count);
+          for I := 0 to PrevMonList.Count - 1 do
+            PrevMonArr[I] := PrevMonList[I];
+        end
+        else
+        begin
+          SetLength(PrevMonArr, 1);
+          PrevMonArr[0] := PrevSourceImage;
+        end;
+        PrevBmp := CreateMultiMonitorCompositeBitmap(PrevMonArr, FConfig.MultiMonitorMode, FConfig);
+        if PrevBmp <> nil then
+        try
+          PrevTex := BitmapToShaderTexture(PrevBmp);
+        finally
+          PrevBmp.Free;
+        end;
+      end;
+
+      LiveTransitionTo(NextTex, PrevTex, TransitionToShaderName(ActiveTrans),
+        FConfig.TransitionDurationMs);
+      UpdateCurrentStatusUI;
+      Exit;
+    end;
+  end
+  else
+    PollLiveEngineStatus;
+
+  // Classic OS wallpaper backend fallback (per-monitor / awww / gsettings / Win32)
   RenderDir := IncludeTrailingPathDelimiter(GetAppConfigDir(False)) + 'rendered';
   PerMonFiles := (FConfig.MultiMonitorMode = mmIndependent) and
                  Assigned(Screen) and (Screen.MonitorCount > 1) and
@@ -1221,7 +1393,6 @@ begin
       Exit;
     end;
 
-    // Protect 8K / huge multi-monitor systems against expensive multi-frame CPU blending
     if (Int64(NextBmp.Width) * Int64(NextBmp.Height)) > (4096 * 2160) then
     begin
       if RenderWallpaperFromBitmap(NextBmp, RenderDir, False, FToggleSlot, RenderedPath) then
@@ -1404,6 +1575,7 @@ var
   H, M, S, MS: Word;
   ElapsedSec: Integer;
 begin
+  PollLiveEngineStatus;
   PollScanThread;
   PollWallHavenFetch;
   CheckSmartPause;
@@ -1776,7 +1948,6 @@ begin
   H := PaintBoxOverlayPreview.Height;
   if (W <= 4) or (H <= 4) then Exit;
 
-  // Simulated dark desktop background gradient
   C.GradientFill(Rect(0, 0, W, H), RGBToColor(24, 34, 52), RGBToColor(12, 17, 27), gdVertical);
   C.Pen.Color := RGBToColor(45, 58, 82);
   C.Brush.Style := bsClear;
@@ -1804,7 +1975,6 @@ begin
   TimeFontName := GetSelectedFontName(ComboTimeFont, 'Sans');
   DateFontName := GetSelectedFontName(ComboDateFont, 'Sans');
 
-  // Scale down gently if chosen font size exceeds preview box height/width
   TimePt := Round(SpinTimeFontSize.Value * 0.72);
   DatePt := Round(SpinDateFontSize.Value * 0.80);
   Scale := 1.0;
@@ -2140,13 +2310,20 @@ procedure TMainForm.BtnSavePrefsClick(Sender: TObject);
 var
   AutoMsg: string;
   OldMultiMode: TMultiMonitorMode;
+  OldBackend: TLinuxBackendMode;
+  OldUseGL: Boolean;
 begin
   OldMultiMode := FConfig.MultiMonitorMode;
+  OldBackend := FConfig.LinuxBackend;
+  OldUseGL := FConfig.UseOpenGLEngine;
+
   LoadUIToConfig;
   SetAutoStartEnabled(FConfig.AutoStart, AutoMsg);
   FConfig.Save;
   FRemainingSeconds := Min(FRemainingSeconds, Max(1, FConfig.IntervalMinutes) * 60);
   LblDetectedDE.Caption := 'Detected environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
+
+  SyncLiveEngineLifecycle((OldBackend <> FConfig.LinuxBackend) or (OldUseGL <> FConfig.UseOpenGLEngine));
   CheckSmartPause;
   if (OldMultiMode <> FConfig.MultiMonitorMode) and (FCurrentSourceImage <> '') then
     PickDistinctMonitorImages(FCurrentSourceImage, FMonitorImages);

@@ -105,7 +105,7 @@ var
 {$ENDIF}
 begin
   {$IFDEF WINDOWS}
-  Exit('Windows Desktop (SystemParametersInfoW)');
+  Exit('Windows Desktop (WorkerW OpenGL 3.3 / SystemParametersInfoW)');
   {$ENDIF}
 
   {$IFDEF UNIX}
@@ -125,6 +125,7 @@ begin
       lbSwww: Exit('Wayland (swww)');
       lbFeh: Exit('X11 (feh)');
       lbNitrogen: Exit('X11 (nitrogen)');
+      lbOpenGLLayer: Exit('OpenGL 3.3 Live Shader Engine (Wayland Layer)');
     end;
   end;
 
@@ -161,7 +162,8 @@ function ResolveEffectiveLinuxMode(Mode: TLinuxBackendMode): TLinuxBackendMode;
 var
   Detected: string;
 begin
-  if Mode <> lbAuto then Exit(Mode);
+  // If lbOpenGLLayer falls back to the classic CLI backend, auto-detect the DE
+  if (Mode <> lbAuto) and (Mode <> lbOpenGLLayer) then Exit(Mode);
   Detected := UpperCase(DetectDesktopEnvironment(lbAuto));
   if Pos('HYPRLAND', Detected) > 0 then Result := lbHyprland
   else if Pos('SWAY', Detected) > 0 then Result := lbSway
@@ -199,7 +201,7 @@ var
 begin
   FS := DefaultFormatSettings;
   FS.DecimalSeparator := '.';
-  Result := FormatFloat('0.00', EnsureRange(Ms, 200, 3000) / 1000.0, FS);
+  Result := FormatFloat('0.00', EnsureRange(Ms, 200, 5000) / 1000.0, FS);
 end;
 {$ENDIF}
 
@@ -322,7 +324,6 @@ function ExtractXfceMonitorPrefix(const PropPath: string): string;
 var
   P: Integer;
 begin
-  // Example: /backdrop/screen0/monitorHDMI-A-1/workspace0/last-image -> /backdrop/screen0/monitorHDMI-A-1/
   Result := '';
   P := Pos('/monitor', PropPath);
   if P = 0 then Exit;
@@ -411,7 +412,6 @@ begin
     begin
       Line := Trim(Lines[I]);
       if Line = '' then Continue;
-      // Format is usually: "DP-1: ..." or "Output DP-1: ..."
       if Pos('Output ', Line) = 1 then
         Delete(Line, 1, 7);
       ColonPos := Pos(':', Line);
@@ -691,9 +691,9 @@ begin
 
   {$IFDEF WINDOWS}
   if (MultiMode in [mmIndependent, mmSpan]) and (GetSystemMetrics(SM_CMONITORS) > 1) then
-    StyleVal := '22' // Span across monitors
+    StyleVal := '22'
   else
-    StyleVal := '10'; // Fill
+    StyleVal := '10';
 
   Reg := TRegistry.Create(KEY_WRITE);
   try

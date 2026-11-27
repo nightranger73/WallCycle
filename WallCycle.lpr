@@ -7,7 +7,7 @@ uses
   cthreads,
   clocale,
   {$ENDIF}
-  Interfaces, // LCL widgetset (GTK2/Qt5 on Linux, Win32 on Windows)
+  Interfaces, // LCL widgetset (GTK2/Qt5/Qt6 on Linux, Win32 on Windows)
   Forms,
   uConfig,
   uLuminanceFilter,
@@ -15,6 +15,14 @@ uses
   uImageOverlay,
   uWallpaperBackend,
   uWallHavenClient,
+  uShaderEngine,
+  {$IFDEF WINDOWS}
+  uWinWallpaper,
+  {$ENDIF}
+  {$IFDEF LINUX}
+  uWaylandLayer,
+  {$ENDIF}
+  uLiveWallpaper,
   uMainForm;
 
 {$R *.res}

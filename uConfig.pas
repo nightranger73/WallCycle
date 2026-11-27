@@ -17,7 +17,12 @@ type
     wtLeft,
     wtRight,
     wtCenter,
-    wtRandom
+    wtRandom,
+    wtFilmBurn,
+    wtNaturalWave,
+    wtRainMelt,
+    wtInkDissolve,
+    wtPrismWipe
   );
 
   TMultiMonitorMode = (
@@ -40,7 +45,8 @@ type
     lbAwww,
     lbSwww,
     lbFeh,
-    lbNitrogen
+    lbNitrogen,
+    lbOpenGLLayer
   );
 
   TSourceKind = (skLocalFolder, skWallHaven);
@@ -106,10 +112,11 @@ type
     FavoritesDir: string;
     BlacklistedItems: TStringList;   // Contains full paths and/or 'wh:<id>' tokens
 
-    // Smart Pause & OS Backend preferences
+    // Smart Pause & OS / OpenGL Backend preferences
     SmartPauseFullscreen: Boolean;
     SmartPauseOnBattery: Boolean;
     LinuxBackend: TLinuxBackendMode;
+    UseOpenGLEngine: Boolean;
     StartMinimized: Boolean;
     AutoStart: Boolean;
 
@@ -208,6 +215,11 @@ begin
     wtRight: Result := 'right';
     wtCenter: Result := 'center';
     wtRandom: Result := 'random';
+    wtFilmBurn: Result := 'film_burn';
+    wtNaturalWave: Result := 'natural_wave';
+    wtRainMelt: Result := 'rain_melt';
+    wtInkDissolve: Result := 'ink_dissolve';
+    wtPrismWipe: Result := 'prism_wipe';
   else
     Result := 'fade';
   end;
@@ -224,6 +236,11 @@ begin
   if LowS = 'right' then Exit(wtRight);
   if LowS = 'center' then Exit(wtCenter);
   if LowS = 'random' then Exit(wtRandom);
+  if LowS = 'film_burn' then Exit(wtFilmBurn);
+  if LowS = 'natural_wave' then Exit(wtNaturalWave);
+  if LowS = 'rain_melt' then Exit(wtRainMelt);
+  if LowS = 'ink_dissolve' then Exit(wtInkDissolve);
+  if LowS = 'prism_wipe' then Exit(wtPrismWipe);
   Result := wtFade;
 end;
 
@@ -265,6 +282,7 @@ begin
     lbSwww: Result := 'swww';
     lbFeh: Result := 'feh';
     lbNitrogen: Result := 'nitrogen';
+    lbOpenGLLayer: Result := 'opengl_layer';
   else
     Result := 'auto';
   end;
@@ -285,6 +303,7 @@ begin
   if S = 'swww' then Exit(lbSwww);
   if S = 'feh' then Exit(lbFeh);
   if S = 'nitrogen' then Exit(lbNitrogen);
+  if S = 'opengl_layer' then Exit(lbOpenGLLayer);
   Result := lbAuto;
 end;
 
@@ -384,8 +403,8 @@ begin
   IntervalMinutes := 15;
   IncludeSubfolders := True;
   ShuffleOrder := True;
-  TransitionStyle := wtFade;
-  TransitionDurationMs := 600;
+  TransitionStyle := wtRainMelt;
+  TransitionDurationMs := 1800;
   MultiMonitorMode := mmPrimary;
 
   OverlayEnabled := True;
@@ -422,6 +441,7 @@ begin
   SmartPauseFullscreen := True;
   SmartPauseOnBattery := True;
   LinuxBackend := lbAuto;
+  UseOpenGLEngine := True;
   StartMinimized := False;
   AutoStart := False;
 
@@ -584,7 +604,6 @@ begin
   DestPath := IncludeTrailingPathDelimiter(FavoritesDir) + BaseName;
   if SameFileName(SourcePath, DestPath) or FileExists(DestPath) then
   begin
-    // Avoid overwriting distinct files with same name unless exact WallHaven ID matches
     if FileExists(DestPath) then
     begin
       if SameFileName(SourcePath, DestPath) then
@@ -596,7 +615,6 @@ begin
       Ext := ExtractFileExt(BaseName);
       if Pos('wallhaven-', LowerCase(NameNoExt)) = 1 then
       begin
-        // Same WallHaven ID already saved in favorites
         Result := True;
         Exit;
       end;
@@ -658,7 +676,7 @@ begin
     TransitionStyle := StrToTransition(Obj.Get('transitionStyle', TransitionToStr(TransitionStyle)));
     TransitionDurationMs := Obj.Get('transitionDurationMs', TransitionDurationMs);
     if TransitionDurationMs < 200 then TransitionDurationMs := 200;
-    if TransitionDurationMs > 3000 then TransitionDurationMs := 3000;
+    if TransitionDurationMs > 5000 then TransitionDurationMs := 5000;
     MultiMonitorMode := StrToMultiMonitor(Obj.Get('multiMonitorMode', MultiMonitorToStr(MultiMonitorMode)));
 
     Arr := Obj.Get('sources', TJSONArray(nil));
@@ -681,7 +699,6 @@ begin
     end
     else
     begin
-      // Backwards compatibility with legacy config
       Arr := Obj.Get('folders', TJSONArray(nil));
       if Arr <> nil then
       begin
@@ -747,6 +764,7 @@ begin
     SmartPauseFullscreen := Obj.Get('smartPauseFullscreen', SmartPauseFullscreen);
     SmartPauseOnBattery := Obj.Get('smartPauseOnBattery', SmartPauseOnBattery);
     LinuxBackend := StrToBackend(Obj.Get('linuxBackend', BackendToStr(LinuxBackend)));
+    UseOpenGLEngine := Obj.Get('useOpenGLEngine', UseOpenGLEngine);
     StartMinimized := Obj.Get('startMinimized', StartMinimized);
     AutoStart := Obj.Get('autoStart', AutoStart);
   finally
@@ -827,6 +845,7 @@ begin
     Obj.Add('smartPauseFullscreen', SmartPauseFullscreen);
     Obj.Add('smartPauseOnBattery', SmartPauseOnBattery);
     Obj.Add('linuxBackend', BackendToStr(LinuxBackend));
+    Obj.Add('useOpenGLEngine', UseOpenGLEngine);
     Obj.Add('startMinimized', StartMinimized);
     Obj.Add('autoStart', AutoStart);
 
