@@ -6,20 +6,21 @@ Release:        1%{?dist}
 Summary:        Desktop wallpaper slideshow with real-time clock overlay and BT.709 filter
 
 License:        Apache-2.0
-URL:            https://github.com/TUO_UTENTE/wallcycle
+URL:            https://github.com/nightranger73/WallCycle
 
 %if 0%{?suse_version}
-Requires:       libgtk-2_0-0
+Requires:       libQt6Pas6
 Requires:       curl
 %else
-Requires:       gtk2
+Requires:       qt6pas
 Requires:       curl
 %endif
 
 %description
-WallCycle esegue slideshow automatici di sfondi desktop da cartelle locali e
-WallHaven.cc con filtro di luminanza ITU-R BT.709, overlay Data e Ora in tempo
-reale e supporto per GNOME, KDE Plasma, XFCE, Hyprland, Sway, Niri e Umbriel.
+WallCycle runs an automatic desktop wallpaper slideshow from local folders and
+WallHaven.cc with a perceived-luminance filter (ITU-R BT.709), customizable
+real-time Date & Time overlay, multi-monitor support, Smart Pause, Favorites,
+Blacklist, and backends for GNOME, KDE Plasma, XFCE, Hyprland, Sway, Niri, and Umbriel.
 
 %install
 rm -rf %{buildroot}
@@ -33,5 +34,5 @@ install -Dm644 %{_sourcedir}/README.md %{buildroot}%{_docdir}/%{name}/README.md
 %{_docdir}/%{name}/README.md
 
 %changelog
-* Mon Nov 23 2026 WallCycle Maintainers <noreply@example.com> - 1.0.0-1
-- Initial RPM release for Fedora and openSUSE
+* Fri Nov 27 2026 WallCycle Maintainers <noreply@example.com> - 1.0.0-1
+- Switch RPM runtime dependencies to Qt6 (qt6pas / libQt6Pas6) for Fedora and openSUSE
