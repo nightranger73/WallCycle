@@ -21,7 +21,10 @@ Native desktop application written in **Object Pascal (Free Pascal 3.2+ / Lazaru
    - CLI control via `--next`, `--previous`, `--pause`, `--resume`, `--toggle-pause`, `--favorite`, `--blacklist`, `--apply`, `--fetch`, `--info`, `--show`, `--minimized`, `--quit`.
 
 
-https://github.com/user-attachments/assets/ffce587c-4dd1-497c-bf70-5f915a720ba6
+
+Uploading wallcycle-transitions-cover.mp4…
+
+
 Other transition not covered on desktop recording
 
 ## Building
