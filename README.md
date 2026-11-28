@@ -1,7 +1,7 @@
 # WallCycle — Cross-Platform Desktop Wallpaper Manager + OpenGL 3.3 Shader Engine (Lazarus / FPC)
 
 
-https://github.com/user-attachments/assets/ffce587c-4dd1-497c-bf70-5f915a720ba6
+https://github.com/user-attachments/assets/75315b4a-9389-4e44-b50f-3c20facc01c6
 
 
 Native desktop application written in **Object Pascal (Free Pascal 3.2+ / Lazarus 3.x)** to run an automatic wallpaper slideshow from local folders and **WallHaven.cc**, featuring a **60 FPS OpenGL 3.3 Core GLSL Shader Transition Engine**, a **real-time Date & Time overlay**, **multi-monitor support**, **Smart Pause**, **Favorites & Blacklist**, and a **perceived-luminance filter (ITU-R BT.709)** to protect desktop icon readability.
@@ -21,8 +21,8 @@ Native desktop application written in **Object Pascal (Free Pascal 3.2+ / Lazaru
    - CLI control via `--next`, `--previous`, `--pause`, `--resume`, `--toggle-pause`, `--favorite`, `--blacklist`, `--apply`, `--fetch`, `--info`, `--show`, `--minimized`, `--quit`.
 
 
-https://github.com/user-attachments/assets/ae63150c-7c59-4fdc-80f8-81f099cefc4e
-
+https://github.com/user-attachments/assets/ffce587c-4dd1-497c-bf70-5f915a720ba6
+Other transition not covered on desktop recording
 
 ## Building
 
