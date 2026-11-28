@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, Types, DateUtils, Forms, Controls, Graphics, Dialogs, ComCtrls, StdCtrls,
   ExtCtrls, Spin, Menus, CheckLst, Math, LCLType, LCLIntf, UniqueInstance,
   uConfig, uLuminanceFilter, uPlaylistScanner, uImageOverlay,
-  uWallpaperBackend, uWallHavenClient, uShaderEngine, uLiveWallpaper;
+  uWallpaperBackend, uWallHavenClient, uEmbeddedIcon, uShaderEngine, uLiveWallpaper;
 
 type
   TMainForm = class(TForm)
@@ -161,6 +161,7 @@ type
     procedure BtnFetchWallHavenClick(Sender: TObject);
     procedure BtnSavePrefsClick(Sender: TObject);
     procedure ChkAutoStartChange(Sender: TObject);
+    procedure TransitionControlChange(Sender: TObject);
     procedure TrackMaxLumChange(Sender: TObject);
     procedure TrackIconLumChange(Sender: TObject);
     procedure TickTimerTimer(Sender: TObject);
@@ -629,6 +630,14 @@ begin
         TempBmp.Free;
         Pic.Free;
       end;
+    end;
+  end;
+
+  if Application.Icon.Empty then
+  begin
+    try
+      LoadEmbeddedAppIcon(Application.Icon);
+    except
     end;
   end;
 
@@ -1246,7 +1255,7 @@ begin
     CurMonArr[I] := FMonitorImages[I];
 
   // Primary GPU path: OpenGL 3.3 Core GLSL Shader Engine (60 FPS)
-  if ShouldUseLiveEngine and WaitForLiveEngineReady(1500) and IsLiveEngineReady then
+  if ShouldUseLiveEngine and WaitForLiveEngineReady(2500) and IsLiveEngineReady then
   begin
     NextBmp := CreateMultiMonitorCompositeBitmap(CurMonArr, FConfig.MultiMonitorMode, FConfig);
     if NextBmp = nil then
@@ -1703,11 +1712,13 @@ end;
 
 procedure TMainForm.BtnPrevWallpaperClick(Sender: TObject);
 begin
+  TransitionControlChange(nil);
   NavigatePrevious;
 end;
 
 procedure TMainForm.BtnNextWallpaperClick(Sender: TObject);
 begin
+  TransitionControlChange(nil);
   AdvanceWallpaper(1, True);
 end;
 
@@ -2306,6 +2317,15 @@ begin
   end;
 end;
 
+procedure TMainForm.TransitionControlChange(Sender: TObject);
+begin
+  if FLoadingUI then Exit;
+  if ComboTransition.ItemIndex >= 0 then
+    FConfig.TransitionStyle := TWallpaperTransition(ComboTransition.ItemIndex);
+  FConfig.TransitionDurationMs := EnsureRange(SpinTransitionMs.Value,
+    SpinTransitionMs.MinValue, SpinTransitionMs.MaxValue);
+end;
+
 procedure TMainForm.BtnSavePrefsClick(Sender: TObject);
 var
   AutoMsg: string;
@@ -2323,7 +2343,7 @@ begin
   FRemainingSeconds := Min(FRemainingSeconds, Max(1, FConfig.IntervalMinutes) * 60);
   LblDetectedDE.Caption := 'Detected environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
 
-  SyncLiveEngineLifecycle((OldBackend <> FConfig.LinuxBackend) or (OldUseGL <> FConfig.UseOpenGLEngine));
+  SyncLiveEngineLifecycle((OldBackend <> FConfig.LinuxBackend) or (OldUseGL <> FConfig.UseOpenGLEngine) or ShouldUseLiveEngine);
   CheckSmartPause;
   if (OldMultiMode <> FConfig.MultiMonitorMode) and (FCurrentSourceImage <> '') then
     PickDistinctMonitorImages(FCurrentSourceImage, FMonitorImages);
@@ -2395,6 +2415,7 @@ end;
 
 procedure TMainForm.TrayIcon1Click(Sender: TObject);
 begin
+  TransitionControlChange(nil);
   AdvanceWallpaper(1, True);
 end;
 

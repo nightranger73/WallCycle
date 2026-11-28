@@ -431,7 +431,7 @@ const
     '  float nuclei = min(min(hole1, hole2), hole3);' + #10 +
     '' + #10 +
     '  float burnField = mix(coarse, nuclei, 0.42) + detail * 0.28 + grain;' + #10 +
-    '  float threshold = mix(-0.14, 1.18, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float threshold = mix(0.20, 0.91, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float dist = burnField - threshold;' + #10 +
     '' + #10 +
     '  // Distorsione termica prima della perforazione' + #10 +
@@ -532,7 +532,7 @@ const
     '              + sin(v_uv.y * 13.0 + u_time * 2.3) * 0.014;' + #10 +
     '  float turbulence = (fbm(p * 5.2 + vec2(-u_time * 0.45, u_time * 0.22)) - 0.5) * 0.14;' + #10 +
     '' + #10 +
-    '  float frontPos = mix(-0.18, 1.20, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float frontPos = mix(-0.07, 1.07, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float waveEdge = frontPos + swell + turbulence;' + #10 +
     '  float delta = sweepCoord - waveEdge;' + #10 +
     '' + #10 +
@@ -650,7 +650,7 @@ const
     '  float gravityBias = v_uv.y * 0.22;' + #10 +
     '  float meltField = streaks * 0.62 + gravityBias + (1.0 - splash) * 0.18;' + #10 +
     '' + #10 +
-    '  float threshold = mix(-0.10, 1.12, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float threshold = mix(0.22, 0.85, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float dist = meltField - threshold;' + #10 +
     '' + #10 +
     '  float activeMask = smoothstep(0.0, 0.04, u_progress) * smoothstep(1.0, 0.94, u_progress);' + #10 +
@@ -747,7 +747,7 @@ const
     '  float fineGrain = fbm(p * 28.0);' + #10 +
     '  float bleedMap = fiber * 0.72 + fineGrain * 0.28;' + #10 +
     '' + #10 +
-    '  float threshold = mix(-0.08, 1.08, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float threshold = mix(0.12, 0.83, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float delta = bleedMap - threshold;' + #10 +
     '' + #10 +
     '  vec2 uvA = coverUv(v_uv, u_res, u_texResA);' + #10 +
@@ -823,7 +823,7 @@ const
     '' + #10 +
     'void main() {' + #10 +
     '  float diag = v_uv.x * 0.72 + v_uv.y * 0.28;' + #10 +
-    '  float front = mix(-0.12, 1.12, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float front = mix(-0.05, 1.05, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float dist = diag - front;' + #10 +
     '' + #10 +
     '  float glassBand = exp(-pow(dist / 0.065, 2.0));' + #10 +

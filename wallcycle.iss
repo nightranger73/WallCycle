@@ -20,7 +20,7 @@ OutputDir=dist-installer
 OutputBaseFilename=WallCycle-Setup-{#AppVersion}-x64
 WizardStyle=modern
 SetupIconFile=WallCycle.ico
-UninstallDisplayIcon={app}\WallCycle.exe
+UninstallDisplayIcon={app}\WallCycle.ico
 
 [Languages]
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
@@ -32,12 +32,14 @@ Name: "autostart"; Description: "Avvia WallCycle automaticamente all'accesso di 
 
 [Files]
 Source: "bin\WallCycle.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "WallCycle.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "wallcycle.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\WallCycle"; Filename: "{app}\WallCycle.exe"
+Name: "{group}\WallCycle"; Filename: "{app}\WallCycle.exe"; IconFilename: "{app}\WallCycle.ico"
 Name: "{group}\{cm:UninstallProgram,WallCycle}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\WallCycle"; Filename: "{app}\WallCycle.exe"; Tasks: desktopicon
+Name: "{autodesktop}\WallCycle"; Filename: "{app}\WallCycle.exe"; IconFilename: "{app}\WallCycle.ico"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "WallCycle"; ValueData: """{app}\WallCycle.exe"" --minimized"; Flags: uninsdeletevalue; Tasks: autostart

@@ -676,7 +676,7 @@ begin
     TransitionStyle := StrToTransition(Obj.Get('transitionStyle', TransitionToStr(TransitionStyle)));
     TransitionDurationMs := Obj.Get('transitionDurationMs', TransitionDurationMs);
     if TransitionDurationMs < 200 then TransitionDurationMs := 200;
-    if TransitionDurationMs > 5000 then TransitionDurationMs := 5000;
+    if TransitionDurationMs > 10000 then TransitionDurationMs := 10000;
     MultiMonitorMode := StrToMultiMonitor(Obj.Get('multiMonitorMode', MultiMonitorToStr(MultiMonitorMode)));
 
     Arr := Obj.Get('sources', TJSONArray(nil));

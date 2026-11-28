@@ -446,6 +446,7 @@ object MainForm: TMainForm
         )
         Style = csDropDownList
         TabOrder = 10
+        OnChange = TransitionControlChange
       end
       object LblTransitionDur: TLabel
         Left = 290
@@ -460,10 +461,11 @@ object MainForm: TMainForm
         Top = 514
         Width = 70
         Increment = 100
-        MaxValue = 5000
+        MaxValue = 10000
         MinValue = 200
         TabOrder = 11
         Value = 1800
+        OnChange = TransitionControlChange
       end
       object LblMultiMonitor: TLabel
         Left = 466

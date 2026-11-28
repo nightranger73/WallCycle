@@ -124,6 +124,10 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
+        <Filename Value="uEmbeddedIcon.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="uShaderEngine.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
