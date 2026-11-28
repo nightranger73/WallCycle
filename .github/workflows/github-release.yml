@@ -3,7 +3,7 @@
 #   - wallcycle_<version>_amd64.deb (Debian / Ubuntu Qt6)
 #   - wallcycle-<version>-1.fedora.x86_64.rpm (Fedora Qt6)
 #   - wallcycle-<version>-1.opensuse.x86_64.rpm (openSUSE Tumbleweed Qt6)
-#   - WallCycle-<version>-x86_64.AppImage (Linux AppImage Qt6, senza LinuxDeploy.appimage)
+#   - WallCycle-<version>-x86_64.AppImage (Linux AppImage Qt6 portatile con plugin Wayland/XCB completi)
 #   - WallCycle-Setup-<version>-x64.exe (Windows 64-bit Installer)
 
 name: Release WallCycle Packages
@@ -142,7 +142,8 @@ jobs:
       - name: Install Qt6 development libraries and build libQt6Pas
         run: |
           sudo apt-get update
-          sudo apt-get install -y qt6-base-dev qt6-wayland qmake6 build-essential patchelf desktop-file-utils curl
+          sudo apt-get install -y qt6-base-dev qt6-wayland qmake6 build-essential patchelf desktop-file-utils curl \
+            libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-image0 libxcb-render-util0 libxcb-xinerama0
           CBINDINGS_PRO="$(find "$HOME" /usr /opt -name 'Qt6Pas.pro' 2>/dev/null | head -n 1)"
           echo "Building Qt6Pas from: $CBINDINGS_PRO"
           rm -rf /tmp/qt6pas-build
@@ -177,7 +178,7 @@ jobs:
             cp -av /usr/lib/*/libQt6Pas.so* /tmp/AppDir/usr/lib/ 2>/dev/null || true
 
           QT6_PLUGINS="$(qtpaths6 --query QT_INSTALL_PLUGINS 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/qt6/plugins)"
-          for pdir in platforms wayland-shell-integration wayland-graphics-integration-client wayland-decoration-client imageformats platformthemes; do
+          for pdir in platforms xcbglintegrations wayland-shell-integration wayland-graphics-integration-client wayland-decoration-client imageformats platformthemes; do
             if [ -d "$QT6_PLUGINS/$pdir" ]; then
               cp -r "$QT6_PLUGINS/$pdir" /tmp/AppDir/usr/plugins/
             fi
@@ -186,16 +187,30 @@ jobs:
 
           install -Dm644 wallcycle.png /tmp/AppDir/usr/share/icons/hicolor/512x512/apps/wallcycle.png
 
-          curl -L -o /tmp/linuxdeploy-x86_64.AppImage \
+          curl -fsSL -o /tmp/linuxdeploy-x86_64.AppImage \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x /tmp/linuxdeploy-x86_64.AppImage
 
           QT6PAS_LIB="$(ldconfig -p | awk '/libQt6Pas\.so\.6/{print $NF; exit}')"
+          DEPLOY_PLUGIN_ARGS=()
+          while IFS= read -r -d '' pso; do
+            DEPLOY_PLUGIN_ARGS+=(--deploy-deps-only "$pso")
+          done < <(find /tmp/AppDir/usr/plugins -type f -name '*.so' -print0)
+
           pushd /tmp
           APPIMAGE_EXTRACT_AND_RUN=1 /tmp/linuxdeploy-x86_64.AppImage \
             --appdir /tmp/AppDir \
             --executable /tmp/AppDir/usr/bin/wallcycle \
             ${QT6PAS_LIB:+--library "$QT6PAS_LIB"} \
+            "${DEPLOY_PLUGIN_ARGS[@]}"
+
+          find /tmp/AppDir/usr/plugins -type f -name '*.so' -exec patchelf --set-rpath '$ORIGIN/../../lib' {} +
+
+          ls /tmp/AppDir/usr/lib/libQt6WaylandClient.so* >/dev/null
+          ls /tmp/AppDir/usr/lib/libQt6XcbQpa.so* >/dev/null
+
+          APPIMAGE_EXTRACT_AND_RUN=1 /tmp/linuxdeploy-x86_64.AppImage \
+            --appdir /tmp/AppDir \
             --desktop-file /tmp/AppDir/usr/share/applications/wallcycle.desktop \
             --icon-file /tmp/AppDir/usr/share/icons/hicolor/512x512/apps/wallcycle.png \
             --output appimage
