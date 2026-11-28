@@ -22,7 +22,7 @@ Native desktop application written in **Object Pascal (Free Pascal 3.2+ / Lazaru
 
 
 
-Uploading wallcycle-transitions-cover.mp4…
+https://github.com/user-attachments/assets/9e37effa-c845-46a4-9ab8-65b7ffe840bf
 
 
 Other transition not covered on desktop recording
