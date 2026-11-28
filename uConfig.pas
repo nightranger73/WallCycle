@@ -11,13 +11,14 @@ type
   TOverlayCorner = (ocTopLeft, ocTopRight, ocBottomLeft, ocBottomRight);
 
   TWallpaperTransition = (
+    wtRandom,
+    wtSequential,
     wtNone,
     wtFade,
     wtWipe,
     wtLeft,
     wtRight,
     wtCenter,
-    wtRandom,
     wtFilmBurn,
     wtNaturalWave,
     wtRainMelt,
@@ -27,7 +28,7 @@ type
     wtPuzzleBuild,
     wtKaleidoPrism,
     wtBioluminescentSpores,
-    wtSequential
+    wtShatteredGlass
   );
 
   TMultiMonitorMode = (
@@ -213,13 +214,14 @@ end;
 function TransitionToStr(T: TWallpaperTransition): string;
 begin
   case T of
+    wtRandom: Result := 'random';
+    wtSequential: Result := 'sequential';
     wtNone: Result := 'none';
     wtFade: Result := 'fade';
     wtWipe: Result := 'wipe';
     wtLeft: Result := 'left';
     wtRight: Result := 'right';
     wtCenter: Result := 'center';
-    wtRandom: Result := 'random';
     wtFilmBurn: Result := 'film_burn';
     wtNaturalWave: Result := 'natural_wave';
     wtRainMelt: Result := 'rain_melt';
@@ -229,7 +231,7 @@ begin
     wtPuzzleBuild: Result := 'puzzle_build';
     wtKaleidoPrism: Result := 'kaleido_prism';
     wtBioluminescentSpores: Result := 'bioluminescent_spores';
-    wtSequential: Result := 'sequential';
+    wtShatteredGlass: Result := 'shattered_glass';
   else
     Result := 'fade';
   end;
@@ -240,12 +242,13 @@ var
   LowS: string;
 begin
   LowS := LowerCase(Trim(S));
+  if LowS = 'random' then Exit(wtRandom);
+  if LowS = 'sequential' then Exit(wtSequential);
   if LowS = 'none' then Exit(wtNone);
   if LowS = 'wipe' then Exit(wtWipe);
   if LowS = 'left' then Exit(wtLeft);
   if LowS = 'right' then Exit(wtRight);
   if LowS = 'center' then Exit(wtCenter);
-  if LowS = 'random' then Exit(wtRandom);
   if LowS = 'film_burn' then Exit(wtFilmBurn);
   if LowS = 'natural_wave' then Exit(wtNaturalWave);
   if LowS = 'rain_melt' then Exit(wtRainMelt);
@@ -255,7 +258,7 @@ begin
   if LowS = 'puzzle_build' then Exit(wtPuzzleBuild);
   if LowS = 'kaleido_prism' then Exit(wtKaleidoPrism);
   if LowS = 'bioluminescent_spores' then Exit(wtBioluminescentSpores);
-  if LowS = 'sequential' then Exit(wtSequential);
+  if LowS = 'shattered_glass' then Exit(wtShatteredGlass);
   Result := wtFade;
 end;
 

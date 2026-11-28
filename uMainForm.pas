@@ -1276,11 +1276,11 @@ begin
       if (ActiveTrans = wtRandom) or (ActiveTrans = wtSequential) then
       begin
         if ActiveTrans = wtRandom then
-          I := Random(14)
+          I := Random(15)
         else
         begin
-          I := FSequentialTransIdx mod 14;
-          FSequentialTransIdx := (FSequentialTransIdx + 1) mod 14;
+          I := FSequentialTransIdx mod 15;
+          FSequentialTransIdx := (FSequentialTransIdx + 1) mod 15;
         end;
         case I of
           0: ActiveTrans := wtFade;
@@ -1296,8 +1296,9 @@ begin
           10: ActiveTrans := wtEarthquakeCollapse;
           11: ActiveTrans := wtPuzzleBuild;
           12: ActiveTrans := wtKaleidoPrism;
+          13: ActiveTrans := wtBioluminescentSpores;
         else
-          ActiveTrans := wtBioluminescentSpores;
+          ActiveTrans := wtShatteredGlass;
         end;
       end;
 

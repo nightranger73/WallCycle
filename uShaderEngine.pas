@@ -1138,10 +1138,12 @@ const
     '  vec3 colA = texture(u_texA, uvA).rgb;' + #10 +
     '  vec3 colB = texture(u_texB, uvB).rgb;' + #10 +
     '' + #10 +
-    '  // Traccia del reticolo puzzle mantenuta attiva finche'' la nuova immagine non e'' completata' + #10 +
-    '  float traceLife = smoothstep(0.0, 0.05, p) * smoothstep(1.0, 0.87, p);' + #10 +
+    '  // Traccia del reticolo puzzle mantenuta attiva finche'' la nuova immagine non e'' completata,' + #10 +
+    '  // poi svanisce completamente lasciando lo sfondo finale pulito' + #10 +
+    '  float traceLife = smoothstep(0.0, 0.04, p) * smoothstep(0.95, 0.78, p);' + #10 +
     '' + #10 +
     '  float staticMinAbs = 10.0;' + #10 +
+    '  float lockedCoverage = 0.0;' + #10 +
     '  bool hasPlaced = false;' + #10 +
     '  float bestPlacedOrder = -1.0;' + #10 +
     '  vec2 bestSampleUv = uvB;' + #10 +
@@ -1157,11 +1159,14 @@ const
     '      float staticD = jigsawPieceDist(q, cid, grid);' + #10 +
     '      staticMinAbs = min(staticMinAbs, abs(staticD));' + #10 +
     '' + #10 +
-    '      float wave = (cid.x / grid.x) * 0.34 + (cid.y / grid.y) * 0.22;' + #10 +
-    '      float delay = 0.03 + wave + hash21(cid + vec2(5.1, 23.7)) * 0.30;' + #10 +
-    '      float localT = clamp((p - delay) / 0.16, 0.0, 1.0);' + #10 +
+    '      float wave = (cid.x / grid.x) * 0.30 + (cid.y / grid.y) * 0.19;' + #10 +
+    '      float delay = 0.02 + wave + hash21(cid + vec2(5.1, 23.7)) * 0.24;' + #10 +
+    '      float localT = clamp((p - delay) / 0.15, 0.0, 1.0);' + #10 +
     '' + #10 +
     '      if (localT > 0.0) {' + #10 +
+    '        // Evita che le giunzioni tra due tessere gia'' posate lascino trapelare lo sfondo vecchio' + #10 +
+    '        lockedCoverage += smoothstep(0.006, -0.004, staticD) * smoothstep(0.92, 1.0, localT);' + #10 +
+    '' + #10 +
     '        // Effetto atterraggio morbido della tessera che si incastra sopra il vecchio sfondo' + #10 +
     '        float ease = 1.0 - pow(1.0 - localT, 3.0);' + #10 +
     '        float flyScale = mix(1.16, 1.0, ease);' + #10 +
@@ -1195,10 +1200,11 @@ const
     '    }' + #10 +
     '  }' + #10 +
     '' + #10 +
-    '  // Vecchio sfondo con lieve traccia guida dei solchi puzzle in attesa delle tessere' + #10 +
+    '  // Vecchio sfondo con lieve traccia guida dei solchi puzzle (e copertura completa sotto le tessere bloccate)' + #10 +
     '  vec3 baseCol = colA * (1.0 - dropShadow);' + #10 +
     '  float guideGroove = smoothstep(0.026, 0.004, staticMinAbs) * traceLife * 0.24;' + #10 +
     '  baseCol = mix(baseCol, baseCol * 0.45 + vec3(0.18, 0.16, 0.13), guideGroove);' + #10 +
+    '  baseCol = mix(baseCol, colB, clamp(lockedCoverage, 0.0, 1.0));' + #10 +
     '' + #10 +
     '  vec3 outCol = baseCol;' + #10 +
     '  if (hasPlaced) {' + #10 +
@@ -1211,10 +1217,13 @@ const
     '    tileCol = mix(tileCol, vec3(0.06, 0.07, 0.09), slotGroove * 0.82);' + #10 +
     '    tileCol += vec3(0.18, 0.15, 0.10) * bevelGlow * 0.45;' + #10 +
     '' + #10 +
-    '    float antiAlias = smoothstep(0.002, -0.008, bestPieceDist);' + #10 +
+    '    float antiAlias = (bestLocalT < 0.999) ? smoothstep(0.002, -0.008, bestPieceDist) : 1.0;' + #10 +
     '    float settleFlash = sin(bestLocalT * 3.14159265) * 0.08 * (1.0 - step(0.99, bestLocalT));' + #10 +
     '    outCol = mix(baseCol, tileCol + vec3(0.12, 0.10, 0.06) * settleFlash, antiAlias);' + #10 +
     '  }' + #10 +
+    '' + #10 +
+    '  // Assicura la scomparsa totale di qualsiasi traccia delle giunzioni a completamento' + #10 +
+    '  outCol = mix(outCol, colB, smoothstep(0.88, 0.96, p));' + #10 +
     '' + #10 +
     '  fragColor = vec4(clamp(outCol, 0.0, 1.0), 1.0);' + #10 +
     '}' + #10 +
@@ -1438,6 +1447,185 @@ const
     '}' + #10 +
     '';
 
+  EMBED_SHATTERED_GLASS_FRAG =
+    '#version 330 core' + #10 +
+    'in vec2 v_uv;' + #10 +
+    'out vec4 fragColor;' + #10 +
+    '' + #10 +
+    'uniform sampler2D u_texA;' + #10 +
+    'uniform sampler2D u_texB;' + #10 +
+    'uniform float u_progress;' + #10 +
+    'uniform float u_time;' + #10 +
+    'uniform vec2 u_res;' + #10 +
+    'uniform vec2 u_texResA;' + #10 +
+    'uniform vec2 u_texResB;' + #10 +
+    '' + #10 +
+    'vec2 coverUv(vec2 uv, vec2 screenRes, vec2 texRes) {' + #10 +
+    '  float sRatio = screenRes.x / max(screenRes.y, 1.0);' + #10 +
+    '  float tRatio = texRes.x / max(texRes.y, 1.0);' + #10 +
+    '  vec2 scale = vec2(1.0);' + #10 +
+    '  if (sRatio > tRatio) {' + #10 +
+    '    scale.y = tRatio / sRatio;' + #10 +
+    '  } else {' + #10 +
+    '    scale.x = sRatio / tRatio;' + #10 +
+    '  }' + #10 +
+    '  return (uv - 0.5) * scale + 0.5;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float hash21(vec2 p) {' + #10 +
+    '  p = fract(p * vec2(123.34, 456.21));' + #10 +
+    '  p += dot(p, p + 45.32);' + #10 +
+    '  return fract(p.x * p.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float noise2D(vec2 p) {' + #10 +
+    '  vec2 i = floor(p);' + #10 +
+    '  vec2 f = fract(p);' + #10 +
+    '  f = f * f * (3.0 - 2.0 * f);' + #10 +
+    '  float a = hash21(i);' + #10 +
+    '  float b = hash21(i + vec2(1.0, 0.0));' + #10 +
+    '  float c = hash21(i + vec2(0.0, 1.0));' + #10 +
+    '  float d = hash21(i + vec2(1.0, 1.0));' + #10 +
+    '  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float fbm(vec2 p) {' + #10 +
+    '  float v = 0.0;' + #10 +
+    '  float amp = 0.5;' + #10 +
+    '  mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);' + #10 +
+    '  for (int i = 0; i < 5; i++) {' + #10 +
+    '    v += amp * noise2D(p);' + #10 +
+    '    p = rot * p * 2.04 + vec2(13.1, 7.7);' + #10 +
+    '    amp *= 0.5;' + #10 +
+    '  }' + #10 +
+    '  return v;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'void sgCobwebCell(vec2 pt, out vec2 cellId, out float edgeDist) {' + #10 +
+    '  float r = length(pt);' + #10 +
+    '  float ang = atan(pt.y, pt.x);' + #10 +
+    '  float pi2 = 6.2831853;' + #10 +
+    '  float a01 = mod(ang + 3.14159265, pi2) / pi2;' + #10 +
+    '' + #10 +
+    '  float nRadial = (fbm(pt * 4.5 + vec2(2.3, 7.1)) - 0.5) * 0.042;' + #10 +
+    '  float nSpoke = (fbm(pt * 5.2 + vec2(11.4, 3.8)) - 0.5) * 0.036;' + #10 +
+    '' + #10 +
+    '  float rWarp = max(r + nRadial, 0.0001);' + #10 +
+    '  float ringCoord = pow(rWarp, 0.66) * 4.8;' + #10 +
+    '  float ir = floor(ringCoord);' + #10 +
+    '  float rf = fract(ringCoord);' + #10 +
+    '' + #10 +
+    '  float sectors = 14.0;' + #10 +
+    '  float spokeRaw = a01 * sectors + (nSpoke / max(rWarp, 0.08)) * 0.45 + hash21(vec2(ir, 3.7)) * 0.18;' + #10 +
+    '  float is = mod(floor(spokeRaw), sectors);' + #10 +
+    '  float sf = fract(spokeRaw);' + #10 +
+    '' + #10 +
+    '  float ringScale = max(0.06, 0.30 * pow(rWarp, 0.34));' + #10 +
+    '  float dRing = min(rf, 1.0 - rf) * ringScale;' + #10 +
+    '  float dSpoke = min(sf, 1.0 - sf) * max(rWarp, 0.035) * (pi2 / sectors);' + #10 +
+    '' + #10 +
+    '  edgeDist = min(dRing, dSpoke);' + #10 +
+    '  cellId = vec2(ir, is);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'void main() {' + #10 +
+    '  float aspect = u_res.x / max(u_res.y, 1.0);' + #10 +
+    '  float p = clamp(u_progress, 0.0, 1.0);' + #10 +
+    '  float activeMask = smoothstep(0.0, 0.03, p) * smoothstep(1.0, 0.94, p);' + #10 +
+    '' + #10 +
+    '  vec2 q = (v_uv - 0.5) * vec2(aspect, 1.0);' + #10 +
+    '  float radialSpread = smoothstep(0.0, 0.22, p) * 1.45;' + #10 +
+    '  float impactShake = sin(clamp(p / 0.28, 0.0, 1.0) * 3.14159265) * activeMask;' + #10 +
+    '  vec2 shakeOff = vec2(sin(u_time * 61.0), cos(u_time * 73.0)) * 0.006 * impactShake;' + #10 +
+    '' + #10 +
+    '  bool hitShard = false;' + #10 +
+    '  float bestDepth = -99.0;' + #10 +
+    '  vec2 bestOrigUv = v_uv;' + #10 +
+    '  float bestEdge = 1.0;' + #10 +
+    '  float bestFallT = 0.0;' + #10 +
+    '  float bestCrackFront = 0.0;' + #10 +
+    '  float crackShadow = 0.0;' + #10 +
+    '' + #10 +
+    '  for (int ir = 0; ir < 6; ir++) {' + #10 +
+    '    float rIn = pow(float(ir) / 4.8, 1.515);' + #10 +
+    '    float rOut = pow(float(ir + 1) / 4.8, 1.515);' + #10 +
+    '    float rMid = 0.5 * (rIn + rOut);' + #10 +
+    '    float maxBox = 0.24 + (rOut - rIn) * 0.75 + rOut * 0.28;' + #10 +
+    '    float spokeShift = hash21(vec2(float(ir), 3.7)) * 0.18;' + #10 +
+    '' + #10 +
+    '    for (int is = 0; is < 14; is++) {' + #10 +
+    '      vec2 cid = vec2(float(ir), float(is));' + #10 +
+    '      float aMid = ((float(is) + 0.5 - spokeShift) / 14.0) * 6.2831853 - 3.14159265;' + #10 +
+    '      vec2 center = vec2(cos(aMid), sin(aMid)) * rMid;' + #10 +
+    '' + #10 +
+    '      float rnd = hash21(cid + vec2(12.7, 39.1));' + #10 +
+    '      float ringNorm = clamp(float(ir) / 5.0, 0.0, 1.0);' + #10 +
+    '      float trigger = mix(0.10, 0.55, ringNorm * 0.62 + rnd * 0.38);' + #10 +
+    '      float fallT = clamp((p - trigger) / 0.41, 0.0, 1.0);' + #10 +
+    '      if (fallT >= 1.0) continue;' + #10 +
+    '' + #10 +
+    '      float dropY = pow(fallT, 1.85) * 1.45;' + #10 +
+    '      float driftX = cos(aMid) * 0.16 * fallT + (rnd - 0.5) * 0.14 * fallT;' + #10 +
+    '      float tilt = (rnd - 0.5) * 0.68 * fallT;' + #10 +
+    '' + #10 +
+    '      vec2 curCenter = center + vec2(driftX, dropY);' + #10 +
+    '      if (abs(q.x - curCenter.x) > maxBox || abs(q.y - curCenter.y) > maxBox) continue;' + #10 +
+    '' + #10 +
+    '      vec2 rel = q - curCenter;' + #10 +
+    '      float cs = cos(-tilt);' + #10 +
+    '      float sn = sin(-tilt);' + #10 +
+    '      vec2 origQ = center + vec2(rel.x * cs - rel.y * sn, rel.x * sn + rel.y * cs);' + #10 +
+    '      vec2 origUv = vec2(origQ.x / aspect, origQ.y) + 0.5;' + #10 +
+    '      if (origUv.x < 0.0 || origUv.x > 1.0 || origUv.y < 0.0 || origUv.y > 1.0) continue;' + #10 +
+    '' + #10 +
+    '      vec2 owner;' + #10 +
+    '      float edgeDist;' + #10 +
+    '      sgCobwebCell(origQ, owner, edgeDist);' + #10 +
+    '      if (abs(owner.x - float(ir)) < 0.1 && abs(owner.y - float(is)) < 0.1) {' + #10 +
+    '        float crackFront = smoothstep(radialSpread, radialSpread - 0.12, rMid) * smoothstep(0.0, 0.025, p);' + #10 +
+    '        float crackGap = mix(0.0, 0.0085, crackFront) + fallT * 0.006;' + #10 +
+    '        if (edgeDist > crackGap) {' + #10 +
+    '          float depth = (1.0 - fallT) * 2.0 + rnd * 0.4;' + #10 +
+    '          if (!hitShard || depth > bestDepth) {' + #10 +
+    '            hitShard = true;' + #10 +
+    '            bestDepth = depth;' + #10 +
+    '            bestOrigUv = origUv + shakeOff * (1.0 - fallT * 0.7);' + #10 +
+    '            bestEdge = edgeDist - crackGap;' + #10 +
+    '            bestFallT = fallT;' + #10 +
+    '            bestCrackFront = crackFront;' + #10 +
+    '          }' + #10 +
+    '        } else {' + #10 +
+    '          crackShadow = max(crackShadow, crackFront);' + #10 +
+    '        }' + #10 +
+    '      }' + #10 +
+    '    }' + #10 +
+    '  }' + #10 +
+    '' + #10 +
+    '  vec2 uvB = coverUv(v_uv, u_res, u_texResB);' + #10 +
+    '  vec3 outCol = texture(u_texB, uvB).rgb;' + #10 +
+    '' + #10 +
+    '  // Brillio bianco-azzurro lungo le linee di frattura aperte sul nuovo sfondo' + #10 +
+    '  outCol += vec3(0.82, 0.93, 1.0) * crackShadow * 0.55 * activeMask;' + #10 +
+    '' + #10 +
+    '  if (hitShard) {' + #10 +
+    '    vec2 uvA = coverUv(clamp(bestOrigUv, 0.0, 1.0), u_res, u_texResA);' + #10 +
+    '    vec3 colA = texture(u_texA, uvA).rgb;' + #10 +
+    '' + #10 +
+    '    // Bordo vetroso speculare sui frammenti crepati e in caduta' + #10 +
+    '    float glassBevel = smoothstep(0.016, 0.0, bestEdge) * bestCrackFront;' + #10 +
+    '    colA = mix(colA, vec3(0.86, 0.95, 1.0), glassBevel * 0.72 * activeMask);' + #10 +
+    '    colA *= mix(1.0, 0.80, bestFallT * 0.55);' + #10 +
+    '    outCol = colA;' + #10 +
+    '  }' + #10 +
+    '' + #10 +
+    '  // Lampo dell''impatto della martellata al centro' + #10 +
+    '  float centerImpact = exp(-length(q) * 11.0) * sin(clamp(p / 0.14, 0.0, 1.0) * 3.14159265) * activeMask;' + #10 +
+    '  outCol += vec3(0.92, 0.97, 1.0) * centerImpact * 0.85;' + #10 +
+    '' + #10 +
+    '  fragColor = vec4(clamp(outCol, 0.0, 1.0), 1.0);' + #10 +
+    '}' + #10 +
+    '';
+
 type
   TShaderEntry = record
     Name: string;
@@ -1529,15 +1717,16 @@ end;
 procedure InitShaderEngine(AWidth, AHeight: Integer; const AShaderDir: string);
 const
   Quad: array[0..7] of Single = (-1, -1,  1, -1,  -1, 1,  1, 1);
-  Names: array[0..13] of string = (
+  Names: array[0..14] of string = (
     'fade', 'wipe', 'left', 'right', 'center',
     'film_burn', 'natural_wave', 'rain_melt', 'ink_dissolve', 'prism_wipe',
-    'earthquake_collapse', 'puzzle_build', 'kaleido_prism', 'bioluminescent_spores'
+    'earthquake_collapse', 'puzzle_build', 'kaleido_prism', 'bioluminescent_spores',
+    'shattered_glass'
   );
 var
   I: Integer;
   VertSrc, FragSrc, BaseDir, VertOverride, FragOverride: string;
-  Fallbacks: array[0..13] of string;
+  Fallbacks: array[0..14] of string;
 begin
   GScreenW := Max(1, AWidth);
   GScreenH := Max(1, AHeight);
@@ -1562,6 +1751,7 @@ begin
   Fallbacks[11] := EMBED_PUZZLE_BUILD_FRAG;
   Fallbacks[12] := EMBED_KALEIDO_PRISM_FRAG;
   Fallbacks[13] := EMBED_BIOLUMINESCENT_SPORES_FRAG;
+  Fallbacks[14] := EMBED_SHATTERED_GLASS_FRAG;
 
   glGenVertexArrays(1, @GVAO);
   glGenBuffers(1, @GVBO);

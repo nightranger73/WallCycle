@@ -108,6 +108,7 @@ begin
     wtPuzzleBuild: Result := 'puzzle_build';
     wtKaleidoPrism: Result := 'kaleido_prism';
     wtBioluminescentSpores: Result := 'bioluminescent_spores';
+    wtShatteredGlass: Result := 'shattered_glass';
   else
     Result := 'fade';
   end;

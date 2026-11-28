@@ -431,13 +431,14 @@ object MainForm: TMainForm
         Width = 188
         ItemHeight = 28
         Items.Strings = (
+          'Random'
+          'Sequential (all)'
           'None (instant)'
           'Crossfade (Fade)'
           'Wipe'
           'Slide Left'
           'Slide Right'
           'Expand from Center'
-          'Random'
           'Film Burn (GLSL)'
           'Natural Wave (GLSL)'
           'Rain Melt (GLSL)'
@@ -447,7 +448,7 @@ object MainForm: TMainForm
           'Puzzle Build (GLSL)'
           'Kaleido Prism (GLSL)'
           'Bioluminescent Spores (GLSL)'
-          'Sequential (all)'
+          'Shattered Glass (GLSL)'
         )
         Style = csDropDownList
         TabOrder = 10
