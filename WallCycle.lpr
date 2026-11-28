@@ -15,6 +15,7 @@ uses
   uImageOverlay,
   uWallpaperBackend,
   uWallHavenClient,
+  uEmbeddedIcon,
   uShaderEngine,
   {$IFDEF WINDOWS}
   uWinWallpaper,
@@ -26,6 +27,9 @@ uses
   uMainForm;
 
 {$R *.res}
+{$IFDEF WINDOWS}
+{$R WallCycleIcon.res}
+{$ENDIF}
 
 begin
   RequireDerivedFormResource := True;

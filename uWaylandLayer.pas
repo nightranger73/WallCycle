@@ -166,6 +166,7 @@ var
   eglDestroySurface: function(dpy: TEGLDisplay; surf: TEGLSurface): cint; cdecl;
   eglDestroyContext: function(dpy: TEGLDisplay; ctx: TEGLContext): cint; cdecl;
   eglTerminate: function(dpy: TEGLDisplay): cint; cdecl;
+  eglSwapInterval: function(dpy: TEGLDisplay; interval: cint): cint; cdecl;
   eglSwapBuffers: function(dpy: TEGLDisplay; surf: TEGLSurface): cint; cdecl;
   eglGetProcAddress: function(procname: PChar): Pointer; cdecl;
 
@@ -377,6 +378,7 @@ begin
   Pointer(eglDestroySurface) := LoadSym(LibEGL, 'eglDestroySurface');
   Pointer(eglDestroyContext) := LoadSym(LibEGL, 'eglDestroyContext');
   Pointer(eglTerminate) := LoadSym(LibEGL, 'eglTerminate');
+  Pointer(eglSwapInterval) := LoadSym(LibEGL, 'eglSwapInterval');
   Pointer(eglSwapBuffers) := LoadSym(LibEGL, 'eglSwapBuffers');
   Pointer(eglGetProcAddress) := LoadSym(LibEGL, 'eglGetProcAddress');
 
@@ -534,6 +536,9 @@ begin
     ShutdownWaylandLayer;
     Exit;
   end;
+
+  if Assigned(eglSwapInterval) then
+    eglSwapInterval(GEGLDisplay, 1);
 
   Load_GL_version_3_3();
   // On Wayland EGL, Load_GL_version_3_3 (glX-based) leaves pointers nil:

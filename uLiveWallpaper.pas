@@ -104,6 +104,10 @@ begin
     wtRainMelt: Result := 'rain_melt';
     wtInkDissolve: Result := 'ink_dissolve';
     wtPrismWipe: Result := 'prism_wipe';
+    wtEarthquakeCollapse: Result := 'earthquake_collapse';
+    wtPuzzleBuild: Result := 'puzzle_build';
+    wtKaleidoPrism: Result := 'kaleido_prism';
+    wtBioluminescentSpores: Result := 'bioluminescent_spores';
   else
     Result := 'fade';
   end;
@@ -186,8 +190,8 @@ var
   Mode: TPendingMode;
   TexA, TexB: TShaderTextureData;
   ShaderName, ErrMsg: string;
-  MySeq, CurrentSeq, TransStart, NowTick: QWord;
-  Progress: Single;
+  MySeq, CurrentSeq, TransStart, NowTick, FrameStart, FrameCost: QWord;
+  Progress, ElapsedSec: Single;
 begin
   SurfW := 1920;
   SurfH := 1080;
@@ -289,9 +293,15 @@ begin
           GLock.Leave;
         end;
 
+        // Draw frame 0 first so GPU texture DMA / buffer allocation completes
+        // before starting the stopwatch for the configured DurMs duration.
+        RenderWallpaperFrame(0.0, 0.0);
+        SwapDesktopBuffers;
+
         TransStart := GetTickCount64;
         while (not Terminated) and PollSurfaceEvents do
         begin
+          FrameStart := GetTickCount64;
           GLock.Enter;
           try
             CurrentSeq := GRequestSeq;
@@ -302,12 +312,16 @@ begin
 
           CheckSurfaceResize(SurfW, SurfH);
           NowTick := GetTickCount64;
+          ElapsedSec := (NowTick - TransStart) / 1000.0;
           Progress := (NowTick - TransStart) / Max(200, DurMs);
           if Progress >= 1.0 then Break;
 
-          RenderWallpaperFrame(Progress, NowTick / 1000.0);
+          RenderWallpaperFrame(Progress, ElapsedSec);
           SwapDesktopBuffers;
-          Sleep(16);
+
+          FrameCost := GetTickCount64 - FrameStart;
+          if FrameCost < 15 then
+            Sleep(Integer(15 - FrameCost));
         end;
 
         GLock.Enter;
@@ -319,9 +333,10 @@ begin
 
         if (not Terminated) and (CurrentSeq = MySeq) then
         begin
+          RenderWallpaperFrame(1.0, Max(200, DurMs) / 1000.0);
+          SwapDesktopBuffers;
           PromoteTextureBToA;
           RenderStaticWallpaper;
-          SwapDesktopBuffers;
         end;
 
         GLock.Enter;

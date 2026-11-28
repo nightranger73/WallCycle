@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, Types, DateUtils, Forms, Controls, Graphics, Dialogs, ComCtrls, StdCtrls,
   ExtCtrls, Spin, Menus, CheckLst, Math, LCLType, LCLIntf, UniqueInstance,
   uConfig, uLuminanceFilter, uPlaylistScanner, uImageOverlay,
-  uWallpaperBackend, uWallHavenClient, uShaderEngine, uLiveWallpaper;
+  uWallpaperBackend, uWallHavenClient, uEmbeddedIcon, uShaderEngine, uLiveWallpaper;
 
 type
   TMainForm = class(TForm)
@@ -161,6 +161,7 @@ type
     procedure BtnFetchWallHavenClick(Sender: TObject);
     procedure BtnSavePrefsClick(Sender: TObject);
     procedure ChkAutoStartChange(Sender: TObject);
+    procedure TransitionControlChange(Sender: TObject);
     procedure TrackMaxLumChange(Sender: TObject);
     procedure TrackIconLumChange(Sender: TObject);
     procedure TickTimerTimer(Sender: TObject);
@@ -197,6 +198,7 @@ type
     FStartupRecheckPending: Boolean;
     FLiveEngineActiveLogged: Boolean;
     FLiveEngineFallbackLogged: Boolean;
+    FSequentialTransIdx: Integer;
 
     procedure LogMsg(const S: string);
     function ShouldUseLiveEngine: Boolean;
@@ -629,6 +631,14 @@ begin
         TempBmp.Free;
         Pic.Free;
       end;
+    end;
+  end;
+
+  if Application.Icon.Empty then
+  begin
+    try
+      LoadEmbeddedAppIcon(Application.Icon);
+    except
     end;
   end;
 
@@ -1246,7 +1256,7 @@ begin
     CurMonArr[I] := FMonitorImages[I];
 
   // Primary GPU path: OpenGL 3.3 Core GLSL Shader Engine (60 FPS)
-  if ShouldUseLiveEngine and WaitForLiveEngineReady(1500) and IsLiveEngineReady then
+  if ShouldUseLiveEngine and WaitForLiveEngineReady(2500) and IsLiveEngineReady then
   begin
     NextBmp := CreateMultiMonitorCompositeBitmap(CurMonArr, FConfig.MultiMonitorMode, FConfig);
     if NextBmp = nil then
@@ -1263,9 +1273,16 @@ begin
     if Length(NextTex.RGB) > 0 then
     begin
       ActiveTrans := FConfig.TransitionStyle;
-      if ActiveTrans = wtRandom then
+      if (ActiveTrans = wtRandom) or (ActiveTrans = wtSequential) then
       begin
-        case Random(10) of
+        if ActiveTrans = wtRandom then
+          I := Random(14)
+        else
+        begin
+          I := FSequentialTransIdx mod 14;
+          FSequentialTransIdx := (FSequentialTransIdx + 1) mod 14;
+        end;
+        case I of
           0: ActiveTrans := wtFade;
           1: ActiveTrans := wtWipe;
           2: ActiveTrans := wtLeft;
@@ -1275,8 +1292,12 @@ begin
           6: ActiveTrans := wtNaturalWave;
           7: ActiveTrans := wtRainMelt;
           8: ActiveTrans := wtInkDissolve;
+          9: ActiveTrans := wtPrismWipe;
+          10: ActiveTrans := wtEarthquakeCollapse;
+          11: ActiveTrans := wtPuzzleBuild;
+          12: ActiveTrans := wtKaleidoPrism;
         else
-          ActiveTrans := wtPrismWipe;
+          ActiveTrans := wtBioluminescentSpores;
         end;
       end;
 
@@ -1409,7 +1430,12 @@ begin
 
     ActiveTrans := FConfig.TransitionStyle;
     if ActiveTrans = wtRandom then
-      ActiveTrans := TWallpaperTransition(Ord(wtFade) + Random(5));
+      ActiveTrans := TWallpaperTransition(Ord(wtFade) + Random(5))
+    else if ActiveTrans = wtSequential then
+    begin
+      ActiveTrans := TWallpaperTransition(Ord(wtFade) + (FSequentialTransIdx mod 5));
+      FSequentialTransIdx := (FSequentialTransIdx + 1) mod 5;
+    end;
 
     if (PrevMonList <> nil) and (PrevMonList.Count > 0) then
     begin
@@ -1703,11 +1729,13 @@ end;
 
 procedure TMainForm.BtnPrevWallpaperClick(Sender: TObject);
 begin
+  TransitionControlChange(nil);
   NavigatePrevious;
 end;
 
 procedure TMainForm.BtnNextWallpaperClick(Sender: TObject);
 begin
+  TransitionControlChange(nil);
   AdvanceWallpaper(1, True);
 end;
 
@@ -2306,6 +2334,15 @@ begin
   end;
 end;
 
+procedure TMainForm.TransitionControlChange(Sender: TObject);
+begin
+  if FLoadingUI then Exit;
+  if ComboTransition.ItemIndex >= 0 then
+    FConfig.TransitionStyle := TWallpaperTransition(ComboTransition.ItemIndex);
+  FConfig.TransitionDurationMs := EnsureRange(SpinTransitionMs.Value,
+    SpinTransitionMs.MinValue, SpinTransitionMs.MaxValue);
+end;
+
 procedure TMainForm.BtnSavePrefsClick(Sender: TObject);
 var
   AutoMsg: string;
@@ -2323,7 +2360,7 @@ begin
   FRemainingSeconds := Min(FRemainingSeconds, Max(1, FConfig.IntervalMinutes) * 60);
   LblDetectedDE.Caption := 'Detected environment: ' + DetectDesktopEnvironment(FConfig.LinuxBackend);
 
-  SyncLiveEngineLifecycle((OldBackend <> FConfig.LinuxBackend) or (OldUseGL <> FConfig.UseOpenGLEngine));
+  SyncLiveEngineLifecycle((OldBackend <> FConfig.LinuxBackend) or (OldUseGL <> FConfig.UseOpenGLEngine) or ShouldUseLiveEngine);
   CheckSmartPause;
   if (OldMultiMode <> FConfig.MultiMonitorMode) and (FCurrentSourceImage <> '') then
     PickDistinctMonitorImages(FCurrentSourceImage, FMonitorImages);
@@ -2395,6 +2432,7 @@ end;
 
 procedure TMainForm.TrayIcon1Click(Sender: TObject);
 begin
+  TransitionControlChange(nil);
   AdvanceWallpaper(1, True);
 end;
 

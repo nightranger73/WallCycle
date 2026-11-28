@@ -431,7 +431,7 @@ const
     '  float nuclei = min(min(hole1, hole2), hole3);' + #10 +
     '' + #10 +
     '  float burnField = mix(coarse, nuclei, 0.42) + detail * 0.28 + grain;' + #10 +
-    '  float threshold = mix(-0.14, 1.18, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float threshold = mix(0.20, 0.91, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float dist = burnField - threshold;' + #10 +
     '' + #10 +
     '  // Distorsione termica prima della perforazione' + #10 +
@@ -532,7 +532,7 @@ const
     '              + sin(v_uv.y * 13.0 + u_time * 2.3) * 0.014;' + #10 +
     '  float turbulence = (fbm(p * 5.2 + vec2(-u_time * 0.45, u_time * 0.22)) - 0.5) * 0.14;' + #10 +
     '' + #10 +
-    '  float frontPos = mix(-0.18, 1.20, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float frontPos = mix(-0.07, 1.07, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float waveEdge = frontPos + swell + turbulence;' + #10 +
     '  float delta = sweepCoord - waveEdge;' + #10 +
     '' + #10 +
@@ -650,7 +650,7 @@ const
     '  float gravityBias = v_uv.y * 0.22;' + #10 +
     '  float meltField = streaks * 0.62 + gravityBias + (1.0 - splash) * 0.18;' + #10 +
     '' + #10 +
-    '  float threshold = mix(-0.10, 1.12, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float threshold = mix(0.22, 0.85, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float dist = meltField - threshold;' + #10 +
     '' + #10 +
     '  float activeMask = smoothstep(0.0, 0.04, u_progress) * smoothstep(1.0, 0.94, u_progress);' + #10 +
@@ -747,7 +747,7 @@ const
     '  float fineGrain = fbm(p * 28.0);' + #10 +
     '  float bleedMap = fiber * 0.72 + fineGrain * 0.28;' + #10 +
     '' + #10 +
-    '  float threshold = mix(-0.08, 1.08, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float threshold = mix(0.12, 0.83, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float delta = bleedMap - threshold;' + #10 +
     '' + #10 +
     '  vec2 uvA = coverUv(v_uv, u_res, u_texResA);' + #10 +
@@ -823,7 +823,7 @@ const
     '' + #10 +
     'void main() {' + #10 +
     '  float diag = v_uv.x * 0.72 + v_uv.y * 0.28;' + #10 +
-    '  float front = mix(-0.12, 1.12, smoothstep(0.0, 1.0, u_progress));' + #10 +
+    '  float front = mix(-0.05, 1.05, clamp(u_progress, 0.0, 1.0));' + #10 +
     '  float dist = diag - front;' + #10 +
     '' + #10 +
     '  float glassBand = exp(-pow(dist / 0.065, 2.0));' + #10 +
@@ -847,6 +847,592 @@ const
     '  float reveal = smoothstep(0.02, -0.02, dist);' + #10 +
     '  vec3 outCol = mix(colA, colB, reveal);' + #10 +
     '  outCol += vec3(0.16, 0.22, 0.30) * glassBand * 0.35 * activeMask;' + #10 +
+    '' + #10 +
+    '  fragColor = vec4(clamp(outCol, 0.0, 1.0), 1.0);' + #10 +
+    '}' + #10 +
+    '';
+
+  EMBED_EARTHQUAKE_COLLAPSE_FRAG =
+    '#version 330 core' + #10 +
+    'in vec2 v_uv;' + #10 +
+    'out vec4 fragColor;' + #10 +
+    '' + #10 +
+    'uniform sampler2D u_texA;' + #10 +
+    'uniform sampler2D u_texB;' + #10 +
+    'uniform float u_progress;' + #10 +
+    'uniform float u_time;' + #10 +
+    'uniform vec2 u_res;' + #10 +
+    'uniform vec2 u_texResA;' + #10 +
+    'uniform vec2 u_texResB;' + #10 +
+    '' + #10 +
+    'vec2 coverUv(vec2 uv, vec2 screenRes, vec2 texRes) {' + #10 +
+    '  float sRatio = screenRes.x / max(screenRes.y, 1.0);' + #10 +
+    '  float tRatio = texRes.x / max(texRes.y, 1.0);' + #10 +
+    '  vec2 scale = vec2(1.0);' + #10 +
+    '  if (sRatio > tRatio) {' + #10 +
+    '    scale.y = tRatio / sRatio;' + #10 +
+    '  } else {' + #10 +
+    '    scale.x = sRatio / tRatio;' + #10 +
+    '  }' + #10 +
+    '  return (uv - 0.5) * scale + 0.5;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float hash21(vec2 p) {' + #10 +
+    '  p = fract(p * vec2(123.34, 456.21));' + #10 +
+    '  p += dot(p, p + 45.32);' + #10 +
+    '  return fract(p.x * p.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float noise2D(vec2 p) {' + #10 +
+    '  vec2 i = floor(p);' + #10 +
+    '  vec2 f = fract(p);' + #10 +
+    '  f = f * f * (3.0 - 2.0 * f);' + #10 +
+    '  float a = hash21(i);' + #10 +
+    '  float b = hash21(i + vec2(1.0, 0.0));' + #10 +
+    '  float c = hash21(i + vec2(0.0, 1.0));' + #10 +
+    '  float d = hash21(i + vec2(1.0, 1.0));' + #10 +
+    '  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float fbm(vec2 p) {' + #10 +
+    '  float v = 0.0;' + #10 +
+    '  float amp = 0.5;' + #10 +
+    '  mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);' + #10 +
+    '  for (int i = 0; i < 5; i++) {' + #10 +
+    '    v += amp * noise2D(p);' + #10 +
+    '    p = rot * p * 2.04 + vec2(13.1, 7.7);' + #10 +
+    '    amp *= 0.5;' + #10 +
+    '  }' + #10 +
+    '  return v;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'vec2 eqSlabCenter(vec2 cid) {' + #10 +
+    '  return cid + vec2(' + #10 +
+    '    0.18 + 0.64 * hash21(cid + vec2(11.3, 27.9)),' + #10 +
+    '    0.18 + 0.64 * hash21(cid + vec2(53.1, 7.4))' + #10 +
+    '  );' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'void eqVoronoi(vec2 pt, out vec2 bestCell, out float edgeDist) {' + #10 +
+    '  vec2 wp = pt + vec2(' + #10 +
+    '    fbm(pt * 2.3 + vec2(3.1, 1.4)) - 0.5,' + #10 +
+    '    fbm(pt * 2.3 + vec2(9.7, 5.2)) - 0.5' + #10 +
+    '  ) * 0.28;' + #10 +
+    '  vec2 n = floor(wp);' + #10 +
+    '  vec2 f = fract(wp);' + #10 +
+    '  float d1 = 8.0;' + #10 +
+    '  float d2 = 8.0;' + #10 +
+    '  bestCell = n;' + #10 +
+    '  for (int dy = -1; dy <= 1; dy++) {' + #10 +
+    '    for (int dx = -1; dx <= 1; dx++) {' + #10 +
+    '      vec2 g = vec2(float(dx), float(dy));' + #10 +
+    '      vec2 cid = n + g;' + #10 +
+    '      vec2 c = eqSlabCenter(cid) - n;' + #10 +
+    '      vec2 r = c - f;' + #10 +
+    '      float d = dot(r, r);' + #10 +
+    '      if (d < d1) {' + #10 +
+    '        d2 = d1;' + #10 +
+    '        d1 = d;' + #10 +
+    '        bestCell = cid;' + #10 +
+    '      } else if (d < d2) {' + #10 +
+    '        d2 = d;' + #10 +
+    '      }' + #10 +
+    '    }' + #10 +
+    '  }' + #10 +
+    '  edgeDist = (sqrt(d2) - sqrt(d1)) * 0.72;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'void main() {' + #10 +
+    '  float aspect = u_res.x / max(u_res.y, 1.0);' + #10 +
+    '  vec2 grid = vec2(max(5.0, floor(5.0 * aspect + 0.5)), 5.0);' + #10 +
+    '  float p = clamp(u_progress, 0.0, 1.0);' + #10 +
+    '' + #10 +
+    '  float activeMask = smoothstep(0.0, 0.04, p) * smoothstep(1.0, 0.94, p);' + #10 +
+    '  float shakeEnv = sin(clamp(p / 0.65, 0.0, 1.0) * 3.14159265) * activeMask;' + #10 +
+    '  vec2 shakeOffset = vec2(' + #10 +
+    '    sin(u_time * 47.0) * 0.011 + cos(u_time * 79.0) * 0.005,' + #10 +
+    '    cos(u_time * 57.0) * 0.009 + sin(u_time * 83.0) * 0.004' + #10 +
+    '  ) * shakeEnv;' + #10 +
+    '' + #10 +
+    '  vec2 q = v_uv * grid;' + #10 +
+    '  vec2 baseCell = floor(q);' + #10 +
+    '' + #10 +
+    '  bool hitSlab = false;' + #10 +
+    '  float bestDepth = -99.0;' + #10 +
+    '  vec2 bestOrigUv = v_uv;' + #10 +
+    '  float bestEdge = 1.0;' + #10 +
+    '  float bestFallT = 0.0;' + #10 +
+    '  float bestCrackBuild = 0.0;' + #10 +
+    '  float crackShadow = 0.0;' + #10 +
+    '' + #10 +
+    '  for (int dy = -6; dy <= 1; dy++) {' + #10 +
+    '    for (int dx = -1; dx <= 1; dx++) {' + #10 +
+    '      vec2 cid = baseCell + vec2(float(dx), float(dy));' + #10 +
+    '      if (cid.x < -1.0 || cid.x > grid.x || cid.y < -1.0 || cid.y > grid.y) continue;' + #10 +
+    '' + #10 +
+    '      float rnd = hash21(cid + vec2(4.2, 19.8));' + #10 +
+    '      float rowNorm = clamp(cid.y / grid.y, 0.0, 1.0);' + #10 +
+    '      float trigger = mix(0.08, 0.56, (1.0 - rowNorm) * 0.58 + rnd * 0.42);' + #10 +
+    '      float fallT = clamp((p - trigger) / 0.40, 0.0, 1.0);' + #10 +
+    '      if (fallT >= 1.0) continue;' + #10 +
+    '' + #10 +
+    '      float dropY = pow(fallT, 1.85) * (grid.y + 1.35);' + #10 +
+    '      float driftX = (hash21(cid + vec2(31.7, 8.3)) - 0.5) * 0.55 * fallT;' + #10 +
+    '      float tilt = (hash21(cid + vec2(71.1, 13.5)) - 0.5) * 0.46 * fallT;' + #10 +
+    '' + #10 +
+    '      vec2 center = eqSlabCenter(cid);' + #10 +
+    '      vec2 rel = q - (center + vec2(driftX, dropY));' + #10 +
+    '      float cs = cos(-tilt);' + #10 +
+    '      float sn = sin(-tilt);' + #10 +
+    '      vec2 origQ = center + vec2(rel.x * cs - rel.y * sn, rel.x * sn + rel.y * cs);' + #10 +
+    '      vec2 origUv = origQ / grid;' + #10 +
+    '' + #10 +
+    '      if (origUv.x < 0.0 || origUv.x > 1.0 || origUv.y < 0.0 || origUv.y > 1.0) continue;' + #10 +
+    '      if (dot(origQ - center, origQ - center) > 1.45) continue;' + #10 +
+    '' + #10 +
+    '      vec2 owner;' + #10 +
+    '      float edgeDist;' + #10 +
+    '      eqVoronoi(origQ, owner, edgeDist);' + #10 +
+    '      if (length(owner - cid) < 0.1) {' + #10 +
+    '        float crackBuild = smoothstep(0.0, max(0.08, trigger), p) * smoothstep(0.0, 0.03, p);' + #10 +
+    '        float crackGap = mix(0.0, 0.036, crackBuild) + fallT * 0.025;' + #10 +
+    '        if (edgeDist > crackGap) {' + #10 +
+    '          float depth = (1.0 - fallT) * 2.0 + rnd * 0.5;' + #10 +
+    '          if (!hitSlab || depth > bestDepth) {' + #10 +
+    '            hitSlab = true;' + #10 +
+    '            bestDepth = depth;' + #10 +
+    '            bestOrigUv = origUv + shakeOffset * (1.0 - fallT * 0.6);' + #10 +
+    '            bestEdge = edgeDist - crackGap;' + #10 +
+    '            bestFallT = fallT;' + #10 +
+    '            bestCrackBuild = crackBuild;' + #10 +
+    '          }' + #10 +
+    '        } else {' + #10 +
+    '          crackShadow = max(crackShadow, crackBuild);' + #10 +
+    '        }' + #10 +
+    '      }' + #10 +
+    '    }' + #10 +
+    '  }' + #10 +
+    '' + #10 +
+    '  vec2 uvB = coverUv(v_uv + shakeOffset * 0.12, u_res, u_texResB);' + #10 +
+    '  vec3 colB = texture(u_texB, uvB).rgb;' + #10 +
+    '' + #10 +
+    '  // Polvere sismica e ombra nelle fessure che scoprono il nuovo sfondo' + #10 +
+    '  float dustField = fbm(vec2(v_uv.x * aspect, v_uv.y) * 7.5 + vec2(0.0, -u_time * 0.35));' + #10 +
+    '  float dustBand = clamp(crackShadow * 0.75 + dustField * 0.45, 0.0, 1.0) * activeMask;' + #10 +
+    '  vec3 dustCol = mix(colB, vec3(0.42, 0.38, 0.34), dustBand * 0.30);' + #10 +
+    '  dustCol *= (1.0 - crackShadow * 0.38 * activeMask);' + #10 +
+    '' + #10 +
+    '  vec3 outCol = dustCol;' + #10 +
+    '  if (hitSlab) {' + #10 +
+    '    vec2 uvA = coverUv(clamp(bestOrigUv, 0.0, 1.0), u_res, u_texResA);' + #10 +
+    '    vec3 colA = texture(u_texA, uvA).rgb;' + #10 +
+    '    float edgeBevel = smoothstep(0.045, 0.0, bestEdge) * bestCrackBuild;' + #10 +
+    '    colA = mix(colA, colA * 0.45 + vec3(0.08, 0.07, 0.06), edgeBevel * 0.85);' + #10 +
+    '    colA *= mix(1.0, 0.72, bestFallT * 0.65);' + #10 +
+    '    outCol = colA;' + #10 +
+    '  }' + #10 +
+    '' + #10 +
+    '  fragColor = vec4(clamp(outCol, 0.0, 1.0), 1.0);' + #10 +
+    '}' + #10 +
+    '';
+
+  EMBED_PUZZLE_BUILD_FRAG =
+    '#version 330 core' + #10 +
+    'in vec2 v_uv;' + #10 +
+    'out vec4 fragColor;' + #10 +
+    '' + #10 +
+    'uniform sampler2D u_texA;' + #10 +
+    'uniform sampler2D u_texB;' + #10 +
+    'uniform float u_progress;' + #10 +
+    'uniform float u_time;' + #10 +
+    'uniform vec2 u_res;' + #10 +
+    'uniform vec2 u_texResA;' + #10 +
+    'uniform vec2 u_texResB;' + #10 +
+    '' + #10 +
+    'vec2 coverUv(vec2 uv, vec2 screenRes, vec2 texRes) {' + #10 +
+    '  float sRatio = screenRes.x / max(screenRes.y, 1.0);' + #10 +
+    '  float tRatio = texRes.x / max(texRes.y, 1.0);' + #10 +
+    '  vec2 scale = vec2(1.0);' + #10 +
+    '  if (sRatio > tRatio) {' + #10 +
+    '    scale.y = tRatio / sRatio;' + #10 +
+    '  } else {' + #10 +
+    '    scale.x = sRatio / tRatio;' + #10 +
+    '  }' + #10 +
+    '  return (uv - 0.5) * scale + 0.5;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float hash21(vec2 p) {' + #10 +
+    '  p = fract(p * vec2(123.34, 456.21));' + #10 +
+    '  p += dot(p, p + 45.32);' + #10 +
+    '  return fract(p.x * p.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float noise2D(vec2 p) {' + #10 +
+    '  vec2 i = floor(p);' + #10 +
+    '  vec2 f = fract(p);' + #10 +
+    '  f = f * f * (3.0 - 2.0 * f);' + #10 +
+    '  float a = hash21(i);' + #10 +
+    '  float b = hash21(i + vec2(1.0, 0.0));' + #10 +
+    '  float c = hash21(i + vec2(0.0, 1.0));' + #10 +
+    '  float d = hash21(i + vec2(1.0, 1.0));' + #10 +
+    '  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float fbm(vec2 p) {' + #10 +
+    '  float v = 0.0;' + #10 +
+    '  float amp = 0.5;' + #10 +
+    '  mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);' + #10 +
+    '  for (int i = 0; i < 5; i++) {' + #10 +
+    '    v += amp * noise2D(p);' + #10 +
+    '    p = rot * p * 2.04 + vec2(13.1, 7.7);' + #10 +
+    '    amp *= 0.5;' + #10 +
+    '  }' + #10 +
+    '  return v;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float jigsawEdgeContrib(float t, float n, float dir) {' + #10 +
+    '  vec2 kp = vec2(t, n * dir);' + #10 +
+    '  float neck = max(abs(kp.x) - 0.058, max(-kp.y - 0.02, kp.y - 0.16));' + #10 +
+    '  float head = length(kp - vec2(0.0, 0.165)) - 0.128;' + #10 +
+    '  return min(neck, head);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float jigsawPieceDist(vec2 q, vec2 cid, vec2 grid) {' + #10 +
+    '  vec2 lp = q - cid;' + #10 +
+    '  vec2 b = abs(lp - 0.5) - 0.5;' + #10 +
+    '  float d = length(max(b, 0.0)) + min(max(b.x, b.y), 0.0);' + #10 +
+    '' + #10 +
+    '  if (cid.x < grid.x - 0.5) {' + #10 +
+    '    float dir = hash21(vec2(cid.x + 1.0, cid.y) + vec2(17.3, 41.9)) > 0.5 ? 1.0 : -1.0;' + #10 +
+    '    float knob = jigsawEdgeContrib(lp.y - 0.5, lp.x - 1.0, dir);' + #10 +
+    '    d = dir > 0.0 ? min(d, knob) : max(d, -knob);' + #10 +
+    '  }' + #10 +
+    '  if (cid.x > 0.5) {' + #10 +
+    '    float dir = hash21(vec2(cid.x, cid.y) + vec2(17.3, 41.9)) > 0.5 ? -1.0 : 1.0;' + #10 +
+    '    float knob = jigsawEdgeContrib(lp.y - 0.5, -lp.x, dir);' + #10 +
+    '    d = dir > 0.0 ? min(d, knob) : max(d, -knob);' + #10 +
+    '  }' + #10 +
+    '  if (cid.y < grid.y - 0.5) {' + #10 +
+    '    float dir = hash21(vec2(cid.x, cid.y + 1.0) + vec2(83.7, 19.4)) > 0.5 ? 1.0 : -1.0;' + #10 +
+    '    float knob = jigsawEdgeContrib(lp.x - 0.5, lp.y - 1.0, dir);' + #10 +
+    '    d = dir > 0.0 ? min(d, knob) : max(d, -knob);' + #10 +
+    '  }' + #10 +
+    '  if (cid.y > 0.5) {' + #10 +
+    '    float dir = hash21(vec2(cid.x, cid.y) + vec2(83.7, 19.4)) > 0.5 ? -1.0 : 1.0;' + #10 +
+    '    float knob = jigsawEdgeContrib(lp.x - 0.5, -lp.y, dir);' + #10 +
+    '    d = dir > 0.0 ? min(d, knob) : max(d, -knob);' + #10 +
+    '  }' + #10 +
+    '  return d;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'void main() {' + #10 +
+    '  float aspect = u_res.x / max(u_res.y, 1.0);' + #10 +
+    '  vec2 grid = vec2(max(5.0, floor(5.0 * aspect + 0.5)), 5.0);' + #10 +
+    '  float p = clamp(u_progress, 0.0, 1.0);' + #10 +
+    '' + #10 +
+    '  vec2 q = v_uv * grid;' + #10 +
+    '  vec2 baseCell = floor(q);' + #10 +
+    '' + #10 +
+    '  vec2 uvA = coverUv(v_uv, u_res, u_texResA);' + #10 +
+    '  vec2 uvB = coverUv(v_uv, u_res, u_texResB);' + #10 +
+    '  vec3 colA = texture(u_texA, uvA).rgb;' + #10 +
+    '  vec3 colB = texture(u_texB, uvB).rgb;' + #10 +
+    '' + #10 +
+    '  // Traccia del reticolo puzzle mantenuta attiva finche'' la nuova immagine non e'' completata' + #10 +
+    '  float traceLife = smoothstep(0.0, 0.05, p) * smoothstep(1.0, 0.87, p);' + #10 +
+    '' + #10 +
+    '  float staticMinAbs = 10.0;' + #10 +
+    '  bool hasPlaced = false;' + #10 +
+    '  float bestPlacedOrder = -1.0;' + #10 +
+    '  vec2 bestSampleUv = uvB;' + #10 +
+    '  float bestPieceDist = 1.0;' + #10 +
+    '  float bestLocalT = 1.0;' + #10 +
+    '  float dropShadow = 0.0;' + #10 +
+    '' + #10 +
+    '  for (int dy = -1; dy <= 1; dy++) {' + #10 +
+    '    for (int dx = -1; dx <= 1; dx++) {' + #10 +
+    '      vec2 cid = baseCell + vec2(float(dx), float(dy));' + #10 +
+    '      if (cid.x < 0.0 || cid.x >= grid.x || cid.y < 0.0 || cid.y >= grid.y) continue;' + #10 +
+    '' + #10 +
+    '      float staticD = jigsawPieceDist(q, cid, grid);' + #10 +
+    '      staticMinAbs = min(staticMinAbs, abs(staticD));' + #10 +
+    '' + #10 +
+    '      float wave = (cid.x / grid.x) * 0.34 + (cid.y / grid.y) * 0.22;' + #10 +
+    '      float delay = 0.03 + wave + hash21(cid + vec2(5.1, 23.7)) * 0.30;' + #10 +
+    '      float localT = clamp((p - delay) / 0.16, 0.0, 1.0);' + #10 +
+    '' + #10 +
+    '      if (localT > 0.0) {' + #10 +
+    '        // Effetto atterraggio morbido della tessera che si incastra sopra il vecchio sfondo' + #10 +
+    '        float ease = 1.0 - pow(1.0 - localT, 3.0);' + #10 +
+    '        float flyScale = mix(1.16, 1.0, ease);' + #10 +
+    '        vec2 liftOffset = vec2(' + #10 +
+    '          (hash21(cid + vec2(9.2, 3.4)) - 0.5) * 0.12,' + #10 +
+    '          -0.16' + #10 +
+    '        ) * (1.0 - ease);' + #10 +
+    '' + #10 +
+    '        vec2 center = cid + 0.5;' + #10 +
+    '        vec2 pieceQ = (q - center - liftOffset) / flyScale + center;' + #10 +
+    '        float pieceD = jigsawPieceDist(pieceQ, cid, grid);' + #10 +
+    '' + #10 +
+    '        // Ombra proiettata sotto la tessera in fase di posa' + #10 +
+    '        vec2 shadowQ = (q - center - liftOffset - vec2(0.05, 0.06) * (1.0 - ease)) / flyScale + center;' + #10 +
+    '        float shadowD = jigsawPieceDist(shadowQ, cid, grid);' + #10 +
+    '        float softSh = smoothstep(0.09, -0.02, shadowD) * (1.0 - ease * 0.72);' + #10 +
+    '        dropShadow = max(dropShadow, softSh * 0.52);' + #10 +
+    '' + #10 +
+    '        if (pieceD <= 0.002) {' + #10 +
+    '          // Le tessere in volo stanno sopra a quelle gia'' posate' + #10 +
+    '          float zOrder = (localT < 1.0) ? (2.0 + localT) : 1.0;' + #10 +
+    '          if (!hasPlaced || zOrder > bestPlacedOrder || (zOrder == bestPlacedOrder && pieceD < bestPieceDist)) {' + #10 +
+    '            hasPlaced = true;' + #10 +
+    '            bestPlacedOrder = zOrder;' + #10 +
+    '            bestPieceDist = pieceD;' + #10 +
+    '            bestLocalT = localT;' + #10 +
+    '            bestSampleUv = coverUv(pieceQ / grid, u_res, u_texResB);' + #10 +
+    '          }' + #10 +
+    '        }' + #10 +
+    '      }' + #10 +
+    '    }' + #10 +
+    '  }' + #10 +
+    '' + #10 +
+    '  // Vecchio sfondo con lieve traccia guida dei solchi puzzle in attesa delle tessere' + #10 +
+    '  vec3 baseCol = colA * (1.0 - dropShadow);' + #10 +
+    '  float guideGroove = smoothstep(0.026, 0.004, staticMinAbs) * traceLife * 0.24;' + #10 +
+    '  baseCol = mix(baseCol, baseCol * 0.45 + vec3(0.18, 0.16, 0.13), guideGroove);' + #10 +
+    '' + #10 +
+    '  vec3 outCol = baseCol;' + #10 +
+    '  if (hasPlaced) {' + #10 +
+    '    vec3 tileCol = texture(u_texB, bestSampleUv).rgb;' + #10 +
+    '    float edgeAbs = abs(bestPieceDist);' + #10 +
+    '' + #10 +
+    '    // Solco netto ed evidenziatura smussata lungo il contorno ad incastro finche'' non e'' completato' + #10 +
+    '    float slotGroove = smoothstep(0.028, 0.004, edgeAbs) * traceLife;' + #10 +
+    '    float bevelGlow = smoothstep(0.055, 0.015, edgeAbs) * (1.0 - slotGroove) * traceLife;' + #10 +
+    '    tileCol = mix(tileCol, vec3(0.06, 0.07, 0.09), slotGroove * 0.82);' + #10 +
+    '    tileCol += vec3(0.18, 0.15, 0.10) * bevelGlow * 0.45;' + #10 +
+    '' + #10 +
+    '    float antiAlias = smoothstep(0.002, -0.008, bestPieceDist);' + #10 +
+    '    float settleFlash = sin(bestLocalT * 3.14159265) * 0.08 * (1.0 - step(0.99, bestLocalT));' + #10 +
+    '    outCol = mix(baseCol, tileCol + vec3(0.12, 0.10, 0.06) * settleFlash, antiAlias);' + #10 +
+    '  }' + #10 +
+    '' + #10 +
+    '  fragColor = vec4(clamp(outCol, 0.0, 1.0), 1.0);' + #10 +
+    '}' + #10 +
+    '';
+
+  EMBED_KALEIDO_PRISM_FRAG =
+    '#version 330 core' + #10 +
+    'in vec2 v_uv;' + #10 +
+    'out vec4 fragColor;' + #10 +
+    '' + #10 +
+    'uniform sampler2D u_texA;' + #10 +
+    'uniform sampler2D u_texB;' + #10 +
+    'uniform float u_progress;' + #10 +
+    'uniform float u_time;' + #10 +
+    'uniform vec2 u_res;' + #10 +
+    'uniform vec2 u_texResA;' + #10 +
+    'uniform vec2 u_texResB;' + #10 +
+    '' + #10 +
+    'vec2 coverUv(vec2 uv, vec2 screenRes, vec2 texRes) {' + #10 +
+    '  float sRatio = screenRes.x / max(screenRes.y, 1.0);' + #10 +
+    '  float tRatio = texRes.x / max(texRes.y, 1.0);' + #10 +
+    '  vec2 scale = vec2(1.0);' + #10 +
+    '  if (sRatio > tRatio) {' + #10 +
+    '    scale.y = tRatio / sRatio;' + #10 +
+    '  } else {' + #10 +
+    '    scale.x = sRatio / tRatio;' + #10 +
+    '  }' + #10 +
+    '  return (uv - 0.5) * scale + 0.5;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float hash21(vec2 p) {' + #10 +
+    '  p = fract(p * vec2(123.34, 456.21));' + #10 +
+    '  p += dot(p, p + 45.32);' + #10 +
+    '  return fract(p.x * p.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float noise2D(vec2 p) {' + #10 +
+    '  vec2 i = floor(p);' + #10 +
+    '  vec2 f = fract(p);' + #10 +
+    '  f = f * f * (3.0 - 2.0 * f);' + #10 +
+    '  float a = hash21(i);' + #10 +
+    '  float b = hash21(i + vec2(1.0, 0.0));' + #10 +
+    '  float c = hash21(i + vec2(0.0, 1.0));' + #10 +
+    '  float d = hash21(i + vec2(1.0, 1.0));' + #10 +
+    '  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float fbm(vec2 p) {' + #10 +
+    '  float v = 0.0;' + #10 +
+    '  float amp = 0.5;' + #10 +
+    '  mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);' + #10 +
+    '  for (int i = 0; i < 5; i++) {' + #10 +
+    '    v += amp * noise2D(p);' + #10 +
+    '    p = rot * p * 2.04 + vec2(13.1, 7.7);' + #10 +
+    '    amp *= 0.5;' + #10 +
+    '  }' + #10 +
+    '  return v;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'void main() {' + #10 +
+    '  float aspect = u_res.x / max(u_res.y, 1.0);' + #10 +
+    '  float p = clamp(u_progress, 0.0, 1.0);' + #10 +
+    '  float activeMask = smoothstep(0.0, 0.06, p) * smoothstep(1.0, 0.92, p);' + #10 +
+    '' + #10 +
+    '  vec2 centered = (v_uv - 0.5) * vec2(aspect, 1.0);' + #10 +
+    '  float r = length(centered);' + #10 +
+    '  float ang = atan(centered.y, centered.x);' + #10 +
+    '' + #10 +
+    '  // Specchio caleidoscopico a 8 settori con torsione morbida' + #10 +
+    '  float twist = sin(p * 3.14159265) * 0.72;' + #10 +
+    '  float sectors = 8.0;' + #10 +
+    '  float sectorAngle = 6.2831853 / sectors;' + #10 +
+    '  float folded = mod(ang + twist, sectorAngle);' + #10 +
+    '  folded = abs(folded - sectorAngle * 0.5);' + #10 +
+    '' + #10 +
+    '  float facetRing = floor(r * 6.5) * 0.12;' + #10 +
+    '  vec2 kaleidoP = vec2(cos(folded + facetRing), sin(folded + facetRing)) * r;' + #10 +
+    '  vec2 kaleidoUv = vec2(kaleidoP.x / aspect, kaleidoP.y) + 0.5;' + #10 +
+    '' + #10 +
+    '  float kStrength = pow(sin(p * 3.14159265), 1.35) * 0.85;' + #10 +
+    '  vec2 sampleUvA = mix(v_uv, kaleidoUv, kStrength * 0.75);' + #10 +
+    '  vec2 sampleUvB = mix(v_uv, kaleidoUv, kStrength * 0.62);' + #10 +
+    '' + #10 +
+    '  float chroma = 0.014 * activeMask * sin(p * 3.14159265);' + #10 +
+    '  vec2 dir = normalize(centered + vec2(0.0001));' + #10 +
+    '' + #10 +
+    '  vec3 colA = vec3(' + #10 +
+    '    texture(u_texA, coverUv(sampleUvA + dir * chroma, u_res, u_texResA)).r,' + #10 +
+    '    texture(u_texA, coverUv(sampleUvA, u_res, u_texResA)).g,' + #10 +
+    '    texture(u_texA, coverUv(sampleUvA - dir * chroma, u_res, u_texResA)).b' + #10 +
+    '  );' + #10 +
+    '  vec3 colB = vec3(' + #10 +
+    '    texture(u_texB, coverUv(sampleUvB + dir * chroma, u_res, u_texResB)).r,' + #10 +
+    '    texture(u_texB, coverUv(sampleUvB, u_res, u_texResB)).g,' + #10 +
+    '    texture(u_texB, coverUv(sampleUvB - dir * chroma, u_res, u_texResB)).b' + #10 +
+    '  );' + #10 +
+    '' + #10 +
+    '  // Onda radiale sfaccettata dal centro verso i bordi' + #10 +
+    '  float crystalWave = r * 0.72 + abs(sin(ang * 4.0)) * 0.14 + fbm(centered * 5.0) * 0.14;' + #10 +
+    '  float front = mix(-0.08, 1.12, p);' + #10 +
+    '  float reveal = smoothstep(front + 0.09, front - 0.09, crystalWave);' + #10 +
+    '' + #10 +
+    '  float seam = smoothstep(0.025, 0.0, abs(folded - sectorAngle * 0.25)) * 0.35' + #10 +
+    '             + smoothstep(0.09, 0.0, abs(crystalWave - front)) * 0.85;' + #10 +
+    '' + #10 +
+    '  vec3 outCol = mix(colA, colB, reveal);' + #10 +
+    '  vec3 goldGlint = mix(vec3(0.96, 0.62, 0.14), vec3(0.24, 0.82, 0.86), 0.35);' + #10 +
+    '  outCol += goldGlint * seam * 0.48 * activeMask;' + #10 +
+    '' + #10 +
+    '  fragColor = vec4(clamp(outCol, 0.0, 1.0), 1.0);' + #10 +
+    '}' + #10 +
+    '';
+
+  EMBED_BIOLUMINESCENT_SPORES_FRAG =
+    '#version 330 core' + #10 +
+    'in vec2 v_uv;' + #10 +
+    'out vec4 fragColor;' + #10 +
+    '' + #10 +
+    'uniform sampler2D u_texA;' + #10 +
+    'uniform sampler2D u_texB;' + #10 +
+    'uniform float u_progress;' + #10 +
+    'uniform float u_time;' + #10 +
+    'uniform vec2 u_res;' + #10 +
+    'uniform vec2 u_texResA;' + #10 +
+    'uniform vec2 u_texResB;' + #10 +
+    '' + #10 +
+    'vec2 coverUv(vec2 uv, vec2 screenRes, vec2 texRes) {' + #10 +
+    '  float sRatio = screenRes.x / max(screenRes.y, 1.0);' + #10 +
+    '  float tRatio = texRes.x / max(texRes.y, 1.0);' + #10 +
+    '  vec2 scale = vec2(1.0);' + #10 +
+    '  if (sRatio > tRatio) {' + #10 +
+    '    scale.y = tRatio / sRatio;' + #10 +
+    '  } else {' + #10 +
+    '    scale.x = sRatio / tRatio;' + #10 +
+    '  }' + #10 +
+    '  return (uv - 0.5) * scale + 0.5;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float hash21(vec2 p) {' + #10 +
+    '  p = fract(p * vec2(123.34, 456.21));' + #10 +
+    '  p += dot(p, p + 45.32);' + #10 +
+    '  return fract(p.x * p.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float noise2D(vec2 p) {' + #10 +
+    '  vec2 i = floor(p);' + #10 +
+    '  vec2 f = fract(p);' + #10 +
+    '  f = f * f * (3.0 - 2.0 * f);' + #10 +
+    '  float a = hash21(i);' + #10 +
+    '  float b = hash21(i + vec2(1.0, 0.0));' + #10 +
+    '  float c = hash21(i + vec2(0.0, 1.0));' + #10 +
+    '  float d = hash21(i + vec2(1.0, 1.0));' + #10 +
+    '  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'float fbm(vec2 p) {' + #10 +
+    '  float v = 0.0;' + #10 +
+    '  float amp = 0.5;' + #10 +
+    '  mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);' + #10 +
+    '  for (int i = 0; i < 5; i++) {' + #10 +
+    '    v += amp * noise2D(p);' + #10 +
+    '    p = rot * p * 2.04 + vec2(13.1, 7.7);' + #10 +
+    '    amp *= 0.5;' + #10 +
+    '  }' + #10 +
+    '  return v;' + #10 +
+    '}' + #10 +
+    '' + #10 +
+    'void main() {' + #10 +
+    '  float aspect = u_res.x / max(u_res.y, 1.0);' + #10 +
+    '  vec2 p = vec2(v_uv.x * aspect, v_uv.y);' + #10 +
+    '  float prog = clamp(u_progress, 0.0, 1.0);' + #10 +
+    '  float activeMask = smoothstep(0.0, 0.05, prog) * smoothstep(1.0, 0.93, prog);' + #10 +
+    '' + #10 +
+    '  // Campo organico cellulare + turbolenza fluida' + #10 +
+    '  vec2 swirl = vec2(' + #10 +
+    '    fbm(p * 3.4 + vec2(u_time * 0.18, -u_time * 0.12)) - 0.5,' + #10 +
+    '    fbm(p * 3.4 + vec2(-u_time * 0.14, u_time * 0.21)) - 0.5' + #10 +
+    '  );' + #10 +
+    '  vec2 cellPos = p * 3.6 + swirl * 0.75;' + #10 +
+    '  vec2 n = floor(cellPos);' + #10 +
+    '  vec2 f = fract(cellPos);' + #10 +
+    '' + #10 +
+    '  float minDist = 8.0;' + #10 +
+    '  float cellRand = 0.0;' + #10 +
+    '  for (int dy = -1; dy <= 1; dy++) {' + #10 +
+    '    for (int dx = -1; dx <= 1; dx++) {' + #10 +
+    '      vec2 g = vec2(float(dx), float(dy));' + #10 +
+    '      vec2 id = n + g;' + #10 +
+    '      vec2 pt = vec2(' + #10 +
+    '        0.2 + 0.6 * hash21(id + vec2(3.1, 17.2)),' + #10 +
+    '        0.2 + 0.6 * hash21(id + vec2(41.7, 9.5))' + #10 +
+    '      );' + #10 +
+    '      float d = length(g + pt - f);' + #10 +
+    '      if (d < minDist) {' + #10 +
+    '        minDist = d;' + #10 +
+    '        cellRand = hash21(id);' + #10 +
+    '      }' + #10 +
+    '    }' + #10 +
+    '  }' + #10 +
+    '' + #10 +
+    '  float portalField = minDist * 0.72 + cellRand * 0.28 + (fbm(p * 8.0) - 0.5) * 0.14;' + #10 +
+    '  float threshold = mix(0.08, 1.06, prog);' + #10 +
+    '  float delta = portalField - threshold;' + #10 +
+    '' + #10 +
+    '  vec2 uvA = coverUv(v_uv + swirl * 0.025 * smoothstep(0.15, 0.0, delta) * activeMask, u_res, u_texResA);' + #10 +
+    '  vec2 uvB = coverUv(v_uv, u_res, u_texResB);' + #10 +
+    '' + #10 +
+    '  vec3 colA = texture(u_texA, uvA).rgb;' + #10 +
+    '  vec3 colB = texture(u_texB, uvB).rgb;' + #10 +
+    '' + #10 +
+    '  float reveal = smoothstep(0.035, -0.035, delta);' + #10 +
+    '  vec3 outCol = mix(colA, colB, reveal);' + #10 +
+    '' + #10 +
+    '  // Alone bioluminescente e micro-spore attorno al bordo dei portali' + #10 +
+    '  float halo = smoothstep(0.095, 0.0, abs(delta)) * activeMask;' + #10 +
+    '  float sparkles = smoothstep(0.74, 0.96, noise2D(p * 28.0 + vec2(u_time * 0.6, -u_time * 0.9))) * halo;' + #10 +
+    '  vec3 bioCol = mix(vec3(0.12, 0.88, 0.76), vec3(0.98, 0.72, 0.18), cellRand);' + #10 +
+    '  outCol += bioCol * (halo * 0.55 + sparkles * 1.15);' + #10 +
     '' + #10 +
     '  fragColor = vec4(clamp(outCol, 0.0, 1.0), 1.0);' + #10 +
     '}' + #10 +
@@ -943,14 +1529,15 @@ end;
 procedure InitShaderEngine(AWidth, AHeight: Integer; const AShaderDir: string);
 const
   Quad: array[0..7] of Single = (-1, -1,  1, -1,  -1, 1,  1, 1);
-  Names: array[0..9] of string = (
+  Names: array[0..13] of string = (
     'fade', 'wipe', 'left', 'right', 'center',
-    'film_burn', 'natural_wave', 'rain_melt', 'ink_dissolve', 'prism_wipe'
+    'film_burn', 'natural_wave', 'rain_melt', 'ink_dissolve', 'prism_wipe',
+    'earthquake_collapse', 'puzzle_build', 'kaleido_prism', 'bioluminescent_spores'
   );
 var
   I: Integer;
   VertSrc, FragSrc, BaseDir, VertOverride, FragOverride: string;
-  Fallbacks: array[0..9] of string;
+  Fallbacks: array[0..13] of string;
 begin
   GScreenW := Max(1, AWidth);
   GScreenH := Max(1, AHeight);
@@ -971,6 +1558,10 @@ begin
   Fallbacks[7] := EMBED_RAIN_MELT_FRAG;
   Fallbacks[8] := EMBED_INK_DISSOLVE_FRAG;
   Fallbacks[9] := EMBED_PRISM_WIPE_FRAG;
+  Fallbacks[10] := EMBED_EARTHQUAKE_COLLAPSE_FRAG;
+  Fallbacks[11] := EMBED_PUZZLE_BUILD_FRAG;
+  Fallbacks[12] := EMBED_KALEIDO_PRISM_FRAG;
+  Fallbacks[13] := EMBED_BIOLUMINESCENT_SPORES_FRAG;
 
   glGenVertexArrays(1, @GVAO);
   glGenBuffers(1, @GVBO);

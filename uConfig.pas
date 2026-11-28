@@ -22,7 +22,12 @@ type
     wtNaturalWave,
     wtRainMelt,
     wtInkDissolve,
-    wtPrismWipe
+    wtPrismWipe,
+    wtEarthquakeCollapse,
+    wtPuzzleBuild,
+    wtKaleidoPrism,
+    wtBioluminescentSpores,
+    wtSequential
   );
 
   TMultiMonitorMode = (
@@ -220,6 +225,11 @@ begin
     wtRainMelt: Result := 'rain_melt';
     wtInkDissolve: Result := 'ink_dissolve';
     wtPrismWipe: Result := 'prism_wipe';
+    wtEarthquakeCollapse: Result := 'earthquake_collapse';
+    wtPuzzleBuild: Result := 'puzzle_build';
+    wtKaleidoPrism: Result := 'kaleido_prism';
+    wtBioluminescentSpores: Result := 'bioluminescent_spores';
+    wtSequential: Result := 'sequential';
   else
     Result := 'fade';
   end;
@@ -241,6 +251,11 @@ begin
   if LowS = 'rain_melt' then Exit(wtRainMelt);
   if LowS = 'ink_dissolve' then Exit(wtInkDissolve);
   if LowS = 'prism_wipe' then Exit(wtPrismWipe);
+  if LowS = 'earthquake_collapse' then Exit(wtEarthquakeCollapse);
+  if LowS = 'puzzle_build' then Exit(wtPuzzleBuild);
+  if LowS = 'kaleido_prism' then Exit(wtKaleidoPrism);
+  if LowS = 'bioluminescent_spores' then Exit(wtBioluminescentSpores);
+  if LowS = 'sequential' then Exit(wtSequential);
   Result := wtFade;
 end;
 
@@ -676,7 +691,7 @@ begin
     TransitionStyle := StrToTransition(Obj.Get('transitionStyle', TransitionToStr(TransitionStyle)));
     TransitionDurationMs := Obj.Get('transitionDurationMs', TransitionDurationMs);
     if TransitionDurationMs < 200 then TransitionDurationMs := 200;
-    if TransitionDurationMs > 5000 then TransitionDurationMs := 5000;
+    if TransitionDurationMs > 10000 then TransitionDurationMs := 10000;
     MultiMonitorMode := StrToMultiMonitor(Obj.Get('multiMonitorMode', MultiMonitorToStr(MultiMonitorMode)));
 
     Arr := Obj.Get('sources', TJSONArray(nil));
